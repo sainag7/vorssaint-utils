@@ -827,7 +827,7 @@ final class NotchService: ObservableObject {
 
     var expandedSize: CGSize {
         if showingSections {
-            return geometry.sectionPickerSize(count: filteredSections.count)
+            return geometry.sectionPickerSize(count: sectionTileCount)
         }
         let musicExtras = NotchLyricsSupport.isEnabled() || NotchQueueSupport.isEnabled()
         let launcher = QuickLauncherService.shared
@@ -1775,6 +1775,19 @@ final class NotchService: ObservableObject {
         }
     }
 
+    /// Screen recording has no page, so Explore offers it as one more tile
+    /// after the pages, kept by a search that names it.
+    var showsRecorderSection: Bool {
+        guard AppFeature.screenRecorder.isAvailable else { return false }
+        let query = sectionQuery.trimmingCharacters(in: .whitespaces).lowercased()
+        guard !query.isEmpty else { return true }
+        let title = FeatureStrings.recorder(L10n.shared.language).pageTitle.lowercased()
+        return title.contains(query) || "screen recording record".contains(query)
+    }
+
+    /// Explore's tiles: the matching pages, then the recording tile.
+    var sectionTileCount: Int { filteredSections.count + (showsRecorderSection ? 1 : 0) }
+
     func searchSections(_ query: String) {
         guard sectionQuery != query else { return }
         mutatePresentation {
@@ -1798,7 +1811,7 @@ final class NotchService: ObservableObject {
     }
 
     private var sectionRowLimits: (rows: Int, visible: Int) {
-        let count = filteredSections.count
+        let count = sectionTileCount
         return (NotchSectionPaging.rows(count: count, columns: geometry.sectionColumns), geometry.sectionRows(count: count))
     }
 
@@ -1924,6 +1937,7 @@ final class NotchService: ObservableObject {
             case .calendar: select(.calendar)
             case .commandBar: perform { CommandBarService.shared.show() }
             case .scratchpad: openScratchpad()
+            case .shortcut: runShortcut()
             case .volume, .brightness, .keyboardLight: select(.controls)
             }
         }
@@ -1932,6 +1946,12 @@ final class NotchService: ObservableObject {
     func select(_ module: NotchModule) {
         guard modules.contains(module) else { return }
         open(module)
+        // Choosing the camera page means wanting the mirror, so it starts
+        // without a second click. Only an explicit choice does this: the
+        // island reopening on the camera page from a hover leaves it off.
+        if module == .camera {
+            DispatchQueue.main.async { CameraPreviewService.shared.showEmbedded() }
+        }
     }
 
     /// The pad lives in the island when its page is on; otherwise the
@@ -2275,6 +2295,15 @@ final class NotchService: ObservableObject {
         let destination = module.map { FeatureSettingsDestination(notch: .module($0)) }
         SettingsRouter.shared.request(destination ?? FeatureSettingsDestination(.notch))
         (NSApp.delegate as? AppDelegate)?.openSettingsWindow()
+    }
+
+    /// Runs the shortcut chosen for the island's Run Shortcut tile once the
+    /// island has closed, so whatever it opens (a FaceTime call) is not
+    /// covered. Without one chosen, Settings opens on the controls.
+    func runShortcut() {
+        let name = NotchShortcutTile.name()
+        guard !name.isEmpty else { openSettings(showing: .controls); return }
+        perform { NotchShortcutRunner.shared.run(name) }
     }
 
     func perform(_ action: @escaping () -> Void) {

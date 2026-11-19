@@ -125,6 +125,8 @@ enum AdminShell {
 /// The password is asked once, when installing (or removing) the rule.
 enum Sudoers {
     static let rulePath = "/etc/sudoers.d/vorssaint-clamshell"
+    /// The separate rule for the Power page's Low Power Mode switch.
+    static let lowPowerRulePath = "/etc/sudoers.d/vorssaint-lowpower"
     // Rule files written under earlier names; removed whenever the rule is
     // (re)installed or removed, so the closed-lid permission migrates without an
     // extra password prompt.
@@ -159,7 +161,7 @@ enum Sudoers {
     /// Uninstall offers the removal prompt from this instead of `isConfigured`,
     /// so a rule that stopped working still gets cleaned up.
     static var ruleFilesPresent: Bool {
-        ([rulePath] + legacyRulePaths).contains { FileManager.default.fileExists(atPath: $0) }
+        ([rulePath, lowPowerRulePath] + legacyRulePaths).contains { FileManager.default.fileExists(atPath: $0) }
     }
 
     static func install(completion: @escaping (Bool) -> Void) {
@@ -178,7 +180,7 @@ enum Sudoers {
 
     static func remove(completion: @escaping (Bool) -> Void) {
         // Also removes the rules left behind by earlier app names.
-        let all = ([rulePath] + legacyRulePaths).joined(separator: " ")
+        let all = ([rulePath, lowPowerRulePath] + legacyRulePaths).joined(separator: " ")
         AdminShell.run("rm -f \(all)",
                        prompt: L10n.shared.s.adminPromptSudoersRemove) { ok in
             completion(ok)

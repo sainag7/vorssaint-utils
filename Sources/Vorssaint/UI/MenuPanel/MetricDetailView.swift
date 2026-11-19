@@ -152,6 +152,7 @@ struct MetricDetailView: View {
     @AppStorage(DefaultsKey.temperatureUnit) private var temperatureUnit = TemperatureUnit.celsius.rawValue
     @AppStorage(DefaultsKey.monitorInterval) private var monitorInterval = 2
     @AppStorage(DefaultsKey.networkSpeedUnit) private var speedUnit = NetworkSpeedUnit.bytes
+    @AppStorage(DefaultsKey.fanSpeedUnit) private var fanSpeedUnit = FanSpeedUnit.percent
     let kind: MetricDetailKind
     @State private var processRows: [ProcessUsage] = []
     @State private var processRowsLoading = false
@@ -163,6 +164,9 @@ struct MetricDetailView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             summaryCard
+            if kind == .fan, AppFeature.fanControl.isAvailable {
+                FanSpeedSliderCard()
+            }
             detailCard
             if kind == .network {
                 speedTestCard
@@ -233,7 +237,7 @@ struct MetricDetailView: View {
             diskGraph
         case .battery:
             if PowerSampler.hasInternalBattery {
-                historyGraph(monitor.snapshot.batteryHistory, color: summaryColor)
+                BatteryHourlyUsageChart()
             }
         case .power:
             let peak = MetricFormat.graphCeiling(monitor.snapshot.systemPowerHistory.max() ?? 0, unitStep: 1000)
@@ -427,9 +431,8 @@ struct MetricDetailView: View {
             let power = snapshot.power
             var rows: [MetricDetailRow] = []
             if PowerSampler.hasInternalBattery {
+                rows.append(contentsOf: powerBreakdownRows(power))
                 rows.append(contentsOf: [
-                    row(l10n.s.batteryCharge, power?.chargePercent.map { "\($0)%" } ?? l10n.s.networkMeasuring),
-                    row(l10n.s.powerBattery, batteryFlowText(power)),
                     row(l10n.s.temperatures, snapshot.batteryTemperature.map(formatTemperature) ?? l10n.s.monitorUnavailable),
                     row(l10n.s.powerHealth, power?.healthPercent.map { "\(Int($0.rounded()))%" } ?? "-"),
                     row(l10n.s.powerCycles, power?.cycleCount.map(String.init) ?? "-"),
@@ -448,7 +451,7 @@ struct MetricDetailView: View {
         case .power:
             let power = snapshot.power
             var rows = [
-                row(l10n.s.powerSystem, power?.systemWatts.map(MetricFormat.watts) ?? l10n.s.networkMeasuring),
+                row(l10n.s.powerSystem, power?.systemWatts.map(MetricFormat.wattsPrecise) ?? l10n.s.networkMeasuring),
                 row(l10n.s.powerAdapter, adapterText(power)),
             ]
             if PowerSampler.hasInternalBattery {
@@ -469,7 +472,11 @@ struct MetricDetailView: View {
             }
             return snapshot.fanSpeeds.enumerated().map { index, rpm in
                 row(String(format: strings.fanNameFormat, index + 1),
-                    String(format: strings.rpmFormat, Int(rpm.rounded())))
+                    FanControlPolicy.detailValue(rpm: rpm,
+                                                  maximum: snapshot.fanMaximums.indices.contains(index)
+                                                      ? snapshot.fanMaximums[index] : nil,
+                                                  unit: fanSpeedUnit,
+                                                  rpmFormat: strings.rpmFormat))
             }
         case .connectedDevices:
             let strings = FeatureStrings.connectedDevices(l10n.language)
@@ -510,8 +517,13 @@ struct MetricDetailView: View {
             return snapshot.power?.systemWatts.map(MetricFormat.wattsCompact) ?? "-"
         case .fan:
             let strings = FeatureStrings.fanControl(l10n.language)
-            guard let rpm = snapshot.fanSpeeds.first else { return "-" }
-            return String(format: strings.rpmFormat, Int(rpm.rounded()))
+            guard let index = FanControlPolicy.leadingFanIndex(speeds: snapshot.fanSpeeds,
+                                                               maximums: snapshot.fanMaximums,
+                                                               unit: fanSpeedUnit) else { return "-" }
+            return FanControlPolicy.displayValue(rpm: snapshot.fanSpeeds[index],
+                                                 maximum: snapshot.fanMaximums.indices.contains(index)
+                                                     ? snapshot.fanMaximums[index] : nil,
+                                                 unit: fanSpeedUnit, rpmFormat: strings.rpmFormat)
         case .connectedDevices:
             return "\(snapshot.connectedDevices.count)"
         }
@@ -546,9 +558,12 @@ struct MetricDetailView: View {
             return powerSubtitle(snapshot.power)
         case .fan:
             let strings = FeatureStrings.fanControl(l10n.language)
-            return snapshot.fanSpeeds.isEmpty
-                ? strings.menuBarTitle
-                : String(format: strings.fanNameFormat, 1)
+            guard let index = FanControlPolicy.leadingFanIndex(speeds: snapshot.fanSpeeds,
+                                                               maximums: snapshot.fanMaximums,
+                                                               unit: fanSpeedUnit) else {
+                return strings.menuBarTitle
+            }
+            return String(format: strings.fanNameFormat, index + 1)
         case .connectedDevices:
             let count = snapshot.connectedDevices.count
             let strings = FeatureStrings.connectedDevices(l10n.language)
@@ -771,16 +786,29 @@ struct MetricDetailView: View {
     private func adapterText(_ power: PowerReading?) -> String {
         guard let power else { return "-" }
         if power.externalConnected, let adapter = power.adapterWatts {
-            return MetricFormat.watts(adapter)
+            return MetricFormat.wattsPrecise(adapter)
         }
         if power.externalConnected { return l10n.s.powerPluggedIn }
         return "-"
     }
 
+    /// The measured power figures for the battery details: what comes in
+    /// from the charger (first, named Charging), what the whole system draws,
+    /// and the battery's own flow, each to the hundredth of a watt. The
+    /// charge itself is the large figure above, so it has no row here.
+    private func powerBreakdownRows(_ power: PowerReading?) -> [MetricDetailRow] {
+        let strings = BatteryDisplayStrings.localized(l10n.language)
+        return [
+            row(l10n.s.powerCharging, adapterText(power)),
+            row(strings.systemTotal, power?.systemWatts.map(MetricFormat.wattsPrecise) ?? l10n.s.networkMeasuring),
+            row(l10n.s.powerBattery, batteryFlowText(power)),
+        ]
+    }
+
     private func batteryFlowText(_ power: PowerReading?) -> String {
         guard let flow = power?.batteryWatts else { return "-" }
         let label = flow >= 0 ? l10n.s.powerCharging : l10n.s.powerOnBattery
-        return "\(MetricFormat.watts(abs(flow))) · \(label)"
+        return "\(MetricFormat.wattsPrecise(abs(flow))) · \(label)"
     }
 
     private func powerSubtitle(_ power: PowerReading?) -> String {

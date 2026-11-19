@@ -551,6 +551,8 @@ struct MixerOptionsControls: View {
     private var headphonesDisconnectVolumePercent = Defaults.defaultMixerHeadphonesDisconnectVolumePercent
     @AppStorage(DefaultsKey.preciseVolumeRollerEnabled)
     private var preciseVolumeRollerEnabled = false
+    @AppStorage(DefaultsKey.sliderScrollAdjustsLevel)
+    private var sliderScrollAdjustsLevel = false
     @State private var showListChooser = false
     var includeSharedAudioFeatures = true
 
@@ -560,6 +562,7 @@ struct MixerOptionsControls: View {
                 inactiveAppsVisibilityToggle
             }
             headphoneDisconnectProtectionToggle
+            sliderScrollToggle
             preciseVolumeRollerToggle
             if includeSharedAudioFeatures, AppFeature.soundOutputSwitcher.isAvailable {
                 SoundOutputSwitcherControls()
@@ -579,6 +582,19 @@ struct MixerOptionsControls: View {
             .foregroundStyle(.secondary)
             .lineLimit(2)
             .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private var sliderScrollToggle: some View {
+        let strings = SliderScrollStrings.localized(l10n.language)
+        return VStack(alignment: .leading, spacing: 3) {
+            Toggle(strings.title, isOn: $sliderScrollAdjustsLevel)
+                .toggleStyle(.checkbox)
+                .font(.system(size: 11.5, weight: .medium))
+            Text(strings.caption)
+                .font(.system(size: 9.5))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 
     private var headphoneDisconnectProtectionToggle: some View {

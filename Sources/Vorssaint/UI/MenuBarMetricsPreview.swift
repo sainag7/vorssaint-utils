@@ -19,6 +19,7 @@ struct MenuBarMetricsPreview: View {
     @AppStorage(DiskMenuBarStyle.defaultsKey) private var diskStyle = DiskMenuBarStyle.percent
     @AppStorage(DefaultsKey.menuBarDiskActivity) private var diskActivity = false
     @AppStorage(DefaultsKey.menuBarBattery) private var battery = false
+    @AppStorage(DefaultsKey.menuBarBatteryStyle) private var batteryStyle = BatteryMenuBarStyle.inside.rawValue
     @AppStorage(DefaultsKey.menuBarBatteryTime) private var batteryTime = false
     @AppStorage(DefaultsKey.menuBarPeripheralBattery) private var peripheralBattery = false
     @AppStorage(DefaultsKey.menuBarPower) private var power = false
@@ -40,6 +41,7 @@ struct MenuBarMetricsPreview: View {
     @AppStorage(DefaultsKey.menuBarMetricSpacing) private var metricSpacing = "standard"
     @AppStorage(DefaultsKey.menuBarHideIconWithMetrics) private var hideIconWithMetrics = false
     @AppStorage(DefaultsKey.menuBarSeparateMetrics) private var separateMetrics = false
+    @AppStorage(DefaultsKey.menuBarMetricGap) private var metricGap = MenuBarSpacingSupport.automaticGap
     @ObservedObject private var l10n = L10n.shared
 
     var body: some View {
@@ -80,8 +82,14 @@ struct MenuBarMetricsPreview: View {
                 Image(systemName: "battery.75")
                     .foregroundStyle(.white.opacity(0.5))
             }
-            ForEach(Array(items.enumerated()), id: \.offset) { _, item in
-                linesView(item)
+            if !items.isEmpty {
+                // Separate items follow the custom gap the way the real
+                // menu bar does; automatic keeps the row's usual spacing.
+                HStack(spacing: MenuBarSpacingSupport.sanitizedGap(metricGap).map { CGFloat($0) } ?? 12) {
+                    ForEach(Array(items.enumerated()), id: \.offset) { _, item in
+                        linesView(item)
+                    }
+                }
             }
             if !iconHidden || !lines.isEmpty {
                 HStack(spacing: 5) {
@@ -201,6 +209,11 @@ struct MenuBarMetricsPreview: View {
             .frame(width: MenuBarRenderer.rateBlockWidth(style: style),
                    height: style == .readable ? 22 : 20,
                    alignment: .center)
+        case let .batteryBlock(percent, isCharging, externalConnected, warning, style)
+            where batteryStyle == BatteryMenuBarStyle.inside.rawValue:
+            InsideBatteryPreview(percent: max(0, min(100, percent)),
+                                 powered: isCharging || externalConnected,
+                                 readable: style == .readable)
         case let .batteryBlock(percent, isCharging, externalConnected, warning, style):
             HStack(spacing: style == .readable ? 5 : 4) {
                 Image(systemName: BatteryPowerSupport.menuBarSymbol(percent: percent,
@@ -219,6 +232,8 @@ struct MenuBarMetricsPreview: View {
             Circle()
                 .fill(dotColor(pressure))
                 .frame(width: stacked ? 5.5 : 7.5, height: stacked ? 5.5 : 7.5)
+        case let .gap(points):
+            Color.clear.frame(width: CGFloat(max(0, points)), height: 1)
         case .separator:
             Text("│")
                 .font(.system(size: MenuBarRenderer.statusFontSize(stacked: stacked),
@@ -349,6 +364,72 @@ struct MenuBarMetricsPreview: View {
                 Image(nsImage: image).renderingMode(.template)
             } else {
                 Image(systemName: "circle.fill")
+            }
+        }
+        .foregroundStyle(.white)
+    }
+}
+
+/// The preview's copy of the menu bar's percentage-inside battery, drawn in
+/// the preview's own white so it reads on its dark strip in either theme.
+/// The number and bolt are cut out of the fill, as in the menu bar.
+private struct InsideBatteryPreview: View {
+    let percent: Int
+    let powered: Bool
+    let readable: Bool
+
+    private var fillColor: Color {
+        switch BatteryPowerSupport.fillLevel(percent: percent) {
+        case .critical: return Color(nsColor: .systemRed)
+        case .low: return Color(nsColor: .systemYellow)
+        case .normal: return .white
+        }
+    }
+
+    var body: some View {
+        let bodyHeight: CGFloat = readable ? 15 : 14
+        let font = NSFont.monospacedDigitSystemFont(ofSize: readable ? 11 : 10.5, weight: .bold)
+        let numberWidth = ("\(percent)" as NSString).size(withAttributes: [.font: font]).width
+        let contentWidth = numberWidth + (powered ? 1 + (readable ? 6 : 5.5) : 0)
+        let bodyWidth = max(readable ? 31 : 29, ceil(contentWidth + 8))
+        let innerWidth = bodyWidth - 4
+        let fraction = BatteryPowerSupport.fillFraction(percent: percent)
+        let fillWidth = fraction > 0 ? max(2, innerWidth * fraction) : 0
+        HStack(spacing: 1) {
+            ZStack(alignment: .leading) {
+                RoundedRectangle(cornerRadius: 4.5, style: .continuous)
+                    .strokeBorder(Color.white.opacity(0.5), lineWidth: 1)
+                // Frosted body, solid fill, and the figure cut out of both,
+                // as the menu bar draws it.
+                ZStack(alignment: .leading) {
+                    RoundedRectangle(cornerRadius: 2.5, style: .continuous)
+                        .fill(Color.white.opacity(0.35))
+                        .frame(width: innerWidth, height: bodyHeight - 4)
+                    RoundedRectangle(cornerRadius: 2, style: .continuous)
+                        .fill(fillColor)
+                        .frame(width: fillWidth, height: bodyHeight - 4)
+                    content.frame(width: innerWidth, height: bodyHeight - 4)
+                        .blendMode(.destinationOut)
+                }
+                .compositingGroup()
+                .padding(.leading, 2)
+            }
+            .frame(width: bodyWidth, height: bodyHeight)
+            RoundedRectangle(cornerRadius: 1)
+                .fill(Color.white.opacity(0.5))
+                .frame(width: 2, height: readable ? 5.5 : 5)
+        }
+        .frame(height: readable ? 22 : 20)
+        .fixedSize()
+    }
+
+    private var content: some View {
+        HStack(spacing: 1) {
+            Text("\(percent)")
+                .font(.system(size: readable ? 11 : 10.5, weight: .bold).monospacedDigit())
+            if powered {
+                Image(systemName: "bolt.fill")
+                    .font(.system(size: readable ? 8 : 7.5, weight: .bold))
             }
         }
         .foregroundStyle(.white)

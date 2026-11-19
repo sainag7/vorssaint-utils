@@ -351,6 +351,12 @@ enum MetricFormat {
         return magnitude < 10 ? String(format: "%.1f W", locale: Self.locale, value) : String(format: "%.0f W", locale: Self.locale, value)
     }
 
+    /// Power to the hundredth of a watt, e.g. "36.65 W", for the detail
+    /// rows where the exact reading matters.
+    static func wattsPrecise(_ value: Double) -> String {
+        String(format: "%.2f W", locale: Self.locale, value)
+    }
+
     /// Compact power for the menu bar, e.g. "9W".
     static func wattsCompact(_ value: Double) -> String {
         String(format: "%.0fW", locale: Self.locale, value.rounded())

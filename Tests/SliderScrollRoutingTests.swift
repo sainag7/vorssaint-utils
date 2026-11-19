@@ -40,6 +40,17 @@ enum SliderScrollRoutingTests {
 
     static func run(_ suite: TestSuite) {
         _ = NSApplication.shared
+        // Wheel adjustment is opt-in; these checks cover the opted-in path.
+        let defaults = UserDefaults.standard
+        let savedScrollPreference = defaults.object(forKey: DefaultsKey.sliderScrollAdjustsLevel)
+        defaults.set(true, forKey: DefaultsKey.sliderScrollAdjustsLevel)
+        defer {
+            if let savedScrollPreference {
+                defaults.set(savedScrollPreference, forKey: DefaultsKey.sliderScrollAdjustsLevel)
+            } else {
+                defaults.removeObject(forKey: DefaultsKey.sliderScrollAdjustsLevel)
+            }
+        }
         let slider = NotchLevelControl(frame: NSRect(x: 0, y: 0, width: 28, height: 80))
         slider.minValue = 0
         slider.maxValue = 1
@@ -97,6 +108,14 @@ enum SliderScrollRoutingTests {
         suite.expect(Route.sidewaysStrip(at: slider) === strip,
                      "a playback-position control does not claim scroll input")
         slider.scrollable = true
+        defaults.set(false, forKey: DefaultsKey.sliderScrollAdjustsLevel)
+        suite.expect(!slider.acceptsSliderScroll && Route.sidewaysStrip(at: slider) === strip,
+                     "with wheel adjustment off a slider leaves the wheel to the list around it")
+        slider.doubleValue = 0.5
+        slider.scrollWheel(with: event(.changed, delta: -120))
+        suite.expect(slider.doubleValue == 0.5,
+                     "with wheel adjustment off scrolling never changes the slider's value")
+        defaults.set(true, forKey: DefaultsKey.sliderScrollAdjustsLevel)
         suite.expect(Route.sidewaysStrip(at: document) === strip,
                      "scrolling the surrounding app list still navigates the strip")
         document.setFrameSize(NSSize(width: 80, height: 50))

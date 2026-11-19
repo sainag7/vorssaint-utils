@@ -17,4 +17,10 @@ enum SudoersSupport {
     static func clamshellRule(uid: uid_t) -> String {
         "#\(uid) ALL=(root) NOPASSWD: /usr/bin/pmset disablesleep 1, /usr/bin/pmset disablesleep 0"
     }
+
+    /// The Low Power Mode NOPASSWD rule: only `pmset -a lowpowermode` 1 or 0,
+    /// so the Power page's switch works without a password after the first.
+    static func lowPowerRule(uid: uid_t) -> String {
+        "#\(uid) ALL=(root) NOPASSWD: /usr/bin/pmset -a lowpowermode 1, /usr/bin/pmset -a lowpowermode 0"
+    }
 }

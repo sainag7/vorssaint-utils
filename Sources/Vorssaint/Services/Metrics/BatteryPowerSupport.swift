@@ -46,4 +46,36 @@ enum BatteryPowerSupport {
         default: return "battery.0"
         }
     }
+
+    /// The fraction of the battery body filled for a charge, 0...1.
+    static func fillFraction(percent: Int) -> Double {
+        Double(max(0, min(100, percent))) / 100
+    }
+
+    /// The fill color band for the percentage-inside battery: the menu bar's
+    /// own color, yellow from 20% down and red from 10% down.
+    enum FillLevel: Equatable { case normal, low, critical }
+
+    static func fillLevel(percent: Int) -> FillLevel {
+        if percent <= 10 { return .critical }
+        if percent <= 20 { return .low }
+        return .normal
+    }
+}
+
+/// How the menu bar draws the internal battery: the charge as a number inside
+/// a battery outline, or the battery glyph followed by the percentage.
+enum BatteryMenuBarStyle: String, CaseIterable {
+    case inside
+    case iconAndPercent
+
+    static let defaultsKey = "menuBarBatteryStyle"
+
+    static func sanitized(_ raw: String?) -> BatteryMenuBarStyle {
+        raw.flatMap(BatteryMenuBarStyle.init(rawValue:)) ?? .inside
+    }
+
+    static var current: BatteryMenuBarStyle {
+        sanitized(UserDefaults.standard.string(forKey: defaultsKey))
+    }
 }

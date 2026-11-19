@@ -122,6 +122,29 @@ enum MenuBarBatteryWarningTests {
             let attributed = Renderer.attributed(for: snapshot(), metrics: metrics)
             return attributed.length > 0 ? (attributed.attribute(.attachment, at: 0, effectiveRange: nil) as? NSTextAttachment)?.image : nil
         }
+        // The percentage-inside battery colors its fill by charge alone
+        // (yellow from 20%, red from 10%), whatever the warning settings.
+        defaults.set(BatteryMenuBarStyle.inside.rawValue, forKey: BatteryMenuBarStyle.defaultsKey)
+        Renderer.style = .dense
+        defaults.set(false, forKey: DefaultsKey.notchLowBatteryTint)
+        let insideImage: (Int) -> NSImage? = { percent in
+            let attributed = Renderer.attributed(for: snapshot(percent), metrics: [.battery])
+            return attributed.length > 0
+                ? (attributed.attribute(.attachment, at: 0, effectiveRange: nil) as? NSTextAttachment)?.image : nil
+        }
+        if let critical = insideImage(8), let low = insideImage(18), let normal = insideImage(64) {
+            suite.expect(matchingPixels(critical, color: .systemRed) > 0
+                         && matchingPixels(low, color: .systemYellow) > 0
+                         && matchingPixels(normal, color: .systemRed) == 0
+                         && matchingPixels(normal, color: .systemYellow) == 0,
+                         "the percentage-inside battery fills red at 10%, yellow at 20% and plain above")
+        } else {
+            suite.expect(false, "the percentage-inside battery produces an image attachment")
+        }
+        defaults.set(true, forKey: DefaultsKey.notchLowBatteryTint)
+        // The warning tint below belongs to the icon-and-percentage style.
+        defaults.set(BatteryMenuBarStyle.iconAndPercent.rawValue, forKey: BatteryMenuBarStyle.defaultsKey)
+        defer { defaults.removeObject(forKey: BatteryMenuBarStyle.defaultsKey) }
         for spacing in ["standard", "compact"] {
             defaults.set(spacing, forKey: DefaultsKey.menuBarMetricSpacing)
             for style in [MenuBarBlockStyle.readable, .dense] {

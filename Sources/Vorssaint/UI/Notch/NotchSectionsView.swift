@@ -16,11 +16,15 @@ struct NotchSectionsView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private var text: NotchStrings { FeatureStrings.notch(l10n.language) }
     private var sections: [NotchModule] { service.filteredSections }
+    @ObservedObject private var recorder = ScreenRecorderService.shared
+
+    private var showsRecorder: Bool { service.showsRecorderSection }
+    private var tileCount: Int { service.sectionTileCount }
     private static let pitch = NotchLayout.sectionTileHeight + NotchLayout.sectionSpacing
 
     var body: some View {
         Group {
-            if sections.isEmpty {
+            if tileCount == 0 {
                 NotchEmptyView(symbol: "magnifyingglass", message: FeatureStrings.clipboard(l10n.language).noResults)
             } else {
                 gallery
@@ -36,8 +40,8 @@ struct NotchSectionsView: View {
 
     private var gallery: some View {
         let columns = service.geometry.sectionColumns
-        let rows = NotchSectionPaging.rows(count: sections.count, columns: columns)
-        let visible = service.geometry.sectionRows(count: sections.count)
+        let rows = NotchSectionPaging.rows(count: tileCount, columns: columns)
+        let visible = service.geometry.sectionRows(count: tileCount)
         let positions = NotchSectionPaging.positions(rows: rows, visible: visible)
         let first = NotchSectionPaging.clamped(service.sectionRow, rows: rows, visible: visible)
         let shown = first..<(first + visible)
@@ -49,6 +53,8 @@ struct NotchSectionsView: View {
                             let index = row * columns + column
                             if index < sections.count {
                                 tile(sections[index], visible: shown.contains(row))
+                            } else if index == sections.count, showsRecorder {
+                                recorderTile(visible: shown.contains(row))
                             } else {
                                 Color.clear.frame(maxWidth: .infinity).frame(height: NotchLayout.sectionTileHeight)
                             }
@@ -141,6 +147,43 @@ struct NotchSectionsView: View {
         // A stepped-away row sits under the header, clipped; it keeps no
         // tooltip there.
         .help(visible ? module.title(l10n.language) + "  ⌥⌘" + module.shortcutKey.uppercased() : "")
+    }
+
+    /// Starts a recording (the island closes first, as from Controls) or
+    /// stops the one running.
+    private func recorderTile(visible: Bool) -> some View {
+        let title = FeatureStrings.recorder(l10n.language).pageTitle
+        let shape = RoundedRectangle(cornerRadius: 16, style: .continuous)
+        return Button { service.perform { recorder.toggle() } } label: {
+            VStack(spacing: 6) {
+                Image(systemName: recorder.isRecording ? "stop.circle.fill" : "record.circle")
+                    .font(.system(size: 22, weight: .medium))
+                    .foregroundStyle(.red)
+                    .frame(width: 25, height: 25)
+                Text(title)
+                    .font(.system(size: 11, weight: .medium))
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.85)
+                    .multilineTextAlignment(.center)
+                    .frame(height: 27)
+                // Keeps the title level with the pages' shortcut rows.
+                Text(" ")
+                    .font(.system(size: 10, weight: .medium, design: .rounded))
+            }
+            .padding(.horizontal, 6)
+            .frame(maxWidth: .infinity)
+            .frame(height: NotchLayout.sectionTileHeight)
+            .background(.white.opacity(recorder.isRecording ? 0.12 : 0.045), in: shape)
+            .overlay {
+                shape.strokeBorder(.white.opacity(contrast == .increased ? 0.4 : 0.04), lineWidth: 1)
+            }
+            .contentShape(shape)
+        }
+        .buttonStyle(NotchButtonStyle(cornerRadius: 16, lifts: false))
+        .accessibilityLabel(title)
+        .accessibilityAddTraits(recorder.isRecording ? .isSelected : [])
+        .accessibilityIdentifier("notch.action.recording")
+        .help(visible ? title : "")
     }
 
     private func tint(for module: NotchModule) -> Color {

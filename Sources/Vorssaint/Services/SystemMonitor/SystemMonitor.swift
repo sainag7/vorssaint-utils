@@ -51,6 +51,9 @@ struct SystemSnapshot {
     var memorySwapUsed: UInt64?
     var memoryPressure: MemoryPressure = .unknown
     var fanSpeeds: [Double] = []
+    /// Reported maximum RPM per fan, parallel to `fanSpeeds`; empty when the
+    /// SMC did not expose usable bounds, which keeps displays on RPM.
+    var fanMaximums: [Double] = []
 
     // Network
     var netDownBytesPerSec: Double?
@@ -169,6 +172,7 @@ final class SystemMonitor: ObservableObject {
     private var gpuKeys: [SMCClient.Key] = []
     private var batteryKeys: [SMCClient.Key] = []
     private var fanKeys: [SMCClient.Key] = []
+    private var fanMaximums: [Double] = []
     private var tempKeysPrepared = false
     private var fanKeysPrepared = false
     private var cpuTemperaturePlatform: CPUTemperaturePlatform = .generic
@@ -948,6 +952,7 @@ final class SystemMonitor: ObservableObject {
                     }
                 }
                 next.fanSpeeds = self.lastFanSpeeds
+                next.fanMaximums = self.lastFanSpeeds.isEmpty ? [] : self.fanMaximums
             }
 
             if plan.needConnectedDevices {
@@ -1064,7 +1069,17 @@ final class SystemMonitor: ObservableObject {
             let count = Self.fanTelemetryCount
             if count > 0 {
                 let keys = (0..<count).compactMap { client.key(named: "F\($0)Ac") }
-                if keys.count == count { fanKeys = keys }
+                if keys.count == count {
+                    fanKeys = keys
+                    // Max RPM is fixed hardware data: read it once, and use it
+                    // only when every fan reports a sane, positive bound.
+                    let maximums = (0..<count).map { index -> Double? in
+                        client.key(named: "F\(index)Mx").flatMap { client.readValue($0) }
+                    }
+                    let valid = maximums.compactMap { $0 }
+                        .filter { FanControlPolicy.validReading($0) && $0 > 0 }
+                    if valid.count == count { fanMaximums = valid }
+                }
             }
         }
 

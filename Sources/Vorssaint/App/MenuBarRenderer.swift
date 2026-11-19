@@ -206,6 +206,9 @@ enum MenuBarSegment {
                       warning: BatteryWarning = .none, style: MenuBarBlockStyle)
     case dot(MemoryPressure)
     case separator
+    /// Exactly this many points of space between two metrics, from the
+    /// user's custom gap.
+    case gap(Int)
 }
 
 enum MenuBarBlockStyle {
@@ -589,10 +592,18 @@ enum MenuBarRenderer {
                                                 pressure: nil)])
                 }
             case .fanSpeed:
-                if let value = FanControlPolicy.menuBarValue(for: snapshot.fanSpeeds) {
-                    let minimumValue = Array(repeating: "20000", count: snapshot.fanSpeeds.count)
-                        .joined(separator: "/")
-                    groups.append([.metricBlock(label: "RPM",
+                let unit = FanSpeedUnit.current
+                if let value = FanControlPolicy.menuBarValue(for: snapshot.fanSpeeds,
+                                                             maximums: snapshot.fanMaximums,
+                                                             unit: unit) {
+                    let percent = FanControlPolicy.showsPercent(speeds: snapshot.fanSpeeds,
+                                                                maximums: snapshot.fanMaximums,
+                                                                unit: unit)
+                    // Percent is a single busiest-fan value; RPM lists each fan.
+                    let minimumValue = percent
+                        ? "100%"
+                        : Array(repeating: "20000", count: snapshot.fanSpeeds.count).joined(separator: "/")
+                    groups.append([.metricBlock(label: percent ? "FAN" : "RPM",
                                                 value: value,
                                                 minimumValue: minimumValue,
                                                 style: style,
@@ -703,9 +714,10 @@ enum MenuBarRenderer {
     private static func blockJoined(_ groups: [[MenuBarSegment]], style: MenuBarBlockStyle) -> [MenuBarSegment] {
         let glue = MenuBarSpacingSupport.blockGlue(readableStyle: style == .readable,
                                                    spacing: MenuBarMetricSpacing.current)
+        let separator = MenuBarSpacingSupport.customGap.map(MenuBarSegment.gap) ?? .text(glue)
         var segments: [MenuBarSegment] = []
         for group in groups {
-            if !segments.isEmpty { segments.append(.text(glue)) }
+            if !segments.isEmpty { segments.append(separator) }
             segments.append(contentsOf: group)
         }
         return segments
@@ -756,6 +768,12 @@ enum MenuBarRenderer {
             case .separator:
                 result.append(NSAttributedString(string: " │ ",
                                                  attributes: [.foregroundColor: NSColor.tertiaryLabelColor]))
+            case let .gap(points):
+                // An empty attachment advances by exactly its width, which a
+                // space with kerning does not do reliably across fonts.
+                let spacer = NSTextAttachment()
+                spacer.bounds = CGRect(x: 0, y: 0, width: CGFloat(max(0, points)), height: 1)
+                result.append(NSAttributedString(attachment: spacer))
             }
         }
         return result
@@ -1091,8 +1109,20 @@ enum MenuBarRenderer {
                                           warning: BatteryWarning,
                                           style: MenuBarBlockStyle) -> NSImage {
         let clampedPercent = max(0, min(100, percent))
-        let cacheKey = "battery|\(clampedPercent)|\(isCharging)|\(externalConnected)|\(warning)|\(style)" as NSString
+        // Read here rather than through `BatteryMenuBarStyle.current` so the
+        // renderer's tests can choose the style on their own defaults.
+        let batteryStyle = BatteryMenuBarStyle.sanitized(
+            UserDefaults.standard.string(forKey: BatteryMenuBarStyle.defaultsKey))
+        let cacheKey = "battery|\(clampedPercent)|\(isCharging)|\(externalConnected)|\(warning)|\(style)|\(batteryStyle)" as NSString
         if let cached = blockImageCache.object(forKey: cacheKey) { return cached }
+        if batteryStyle == .inside {
+            let image = insideBatteryImage(percent: clampedPercent,
+                                           powered: isCharging || externalConnected,
+                                           warning: warning,
+                                           style: style)
+            blockImageCache.setObject(image, forKey: cacheKey, cost: blockImageCost(image))
+            return image
+        }
 
         let symbolName = BatteryPowerSupport.menuBarSymbol(percent: percent,
                                                            isCharging: isCharging,
@@ -1140,6 +1170,108 @@ enum MenuBarRenderer {
         image.isTemplate = false
         blockImageCache.setObject(image, forKey: cacheKey, cost: blockImageCost(image))
         return image
+    }
+
+    /// The charge as a number inside a battery outline, macOS style: a soft
+    /// outline around a translucent "frosted" body, a solid fill to the
+    /// charge (yellow from 20%, red from 10%), and the number, with a bolt on
+    /// external power, cut out of both so it reads as one clean figure.
+    private static func insideBatteryImage(percent: Int,
+                                           powered: Bool,
+                                           warning: BatteryWarning,
+                                           style: MenuBarBlockStyle) -> NSImage {
+        let readable = style == .readable
+        let font = NSFont.monospacedDigitSystemFont(ofSize: readable ? 11 : 10.5, weight: .bold)
+        let number = "\(percent)" as NSString
+        let numberWidth = number.size(withAttributes: [.font: font]).width
+        let boltSize = NSSize(width: readable ? 6 : 5.5, height: readable ? 9 : 8.5)
+        let boltGap: CGFloat = 1
+        let contentWidth = numberWidth + (powered ? boltGap + boltSize.width : 0)
+        let bodySize = NSSize(width: max(readable ? 31 : 29, ceil(contentWidth + 8)),
+                              height: readable ? 15 : 14)
+        let nubSize = NSSize(width: 2, height: readable ? 5.5 : 5)
+        let height: CGFloat = readable ? 22 : 20
+        let width = ceil(bodySize.width + 1 + nubSize.width)
+        let fraction = BatteryPowerSupport.fillFraction(percent: percent)
+        let level = BatteryPowerSupport.fillLevel(percent: percent)
+
+        let image = NSImage(size: NSSize(width: width, height: height), flipped: false) { _ in
+            let ink = NSColor.labelColor
+            let body = NSRect(x: 0.6, y: (height - bodySize.height) / 2,
+                              width: bodySize.width - 1.2, height: bodySize.height)
+            let outline = NSBezierPath(roundedRect: body, xRadius: 4.5, yRadius: 4.5)
+            outline.lineWidth = 1.0
+            ink.withAlphaComponent(0.5).setStroke()
+            outline.stroke()
+
+            let nub = NSRect(x: body.maxX + 1, y: (height - nubSize.height) / 2,
+                             width: nubSize.width, height: nubSize.height)
+            ink.withAlphaComponent(0.5).setFill()
+            NSBezierPath(roundedRect: nub, xRadius: 1, yRadius: 1).fill()
+
+            let inner = body.insetBy(dx: 2, dy: 2)
+            // The frosted body: a translucent layer over the whole inside.
+            ink.withAlphaComponent(0.35).setFill()
+            NSBezierPath(roundedRect: inner, xRadius: 2.5, yRadius: 2.5).fill()
+            let fillRect = NSRect(x: inner.minX, y: inner.minY,
+                                  width: fraction > 0 ? max(2, inner.width * fraction) : 0,
+                                  height: inner.height)
+            let fillColor: NSColor
+            switch level {
+            case .critical: fillColor = .systemRed
+            case .low: fillColor = .systemYellow
+            case .normal: fillColor = ink
+            }
+            if fillRect.width > 0 {
+                fillColor.setFill()
+                NSBezierPath(roundedRect: fillRect, xRadius: 2, yRadius: 2).fill()
+            }
+
+            // Center the digits' actual drawn shapes, measured from their
+            // baseline, so the gap above and below them is the same. The
+            // font's nominal cap height sits lower than the real digits.
+            let originX = body.midX - contentWidth / 2
+            let attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: NSColor.black]
+            let glyphs = number.boundingRect(with: NSSize(width: 1000, height: 1000),
+                                          options: [.usesDeviceMetrics], attributes: attrs)
+            let baseline = body.midY - (glyphs.minY + glyphs.height / 2)
+            let boltRect = NSRect(x: originX + numberWidth + boltGap,
+                                  y: body.midY - boltSize.height / 2,
+                                  width: boltSize.width, height: boltSize.height)
+            // One cut-out for the whole figure: over the fill it shows the
+            // menu bar clearly, over the frosted part more softly, and no
+            // digit is ever half drawn and half cut.
+            if let context = NSGraphicsContext.current?.cgContext {
+                context.saveGState()
+                context.clip(to: inner)
+                context.setBlendMode(.destinationOut)
+                // Without .usesLineFragmentOrigin the rect's origin is the baseline.
+                number.draw(with: NSRect(x: originX, y: baseline, width: numberWidth + 2, height: glyphs.maxY + 2),
+                            options: [], attributes: attrs, context: nil)
+                if powered {
+                    NSColor.black.setFill()
+                    lightningBolt(in: boltRect).fill()
+                }
+                context.restoreGState()
+            }
+            return true
+        }
+        image.isTemplate = false
+        return image
+    }
+
+    /// A lightning bolt drawn as a path, so it can be cut out of the fill
+    /// like the number and stays crisp at menu bar sizes.
+    private static func lightningBolt(in rect: NSRect) -> NSBezierPath {
+        let points: [(CGFloat, CGFloat)] = [(0.66, 1.0), (0.04, 0.42), (0.44, 0.42),
+                                            (0.32, 0.0), (0.96, 0.6), (0.56, 0.6)]
+        let path = NSBezierPath()
+        for (index, point) in points.enumerated() {
+            let location = NSPoint(x: rect.minX + point.0 * rect.width, y: rect.minY + point.1 * rect.height)
+            if index == 0 { path.move(to: location) } else { path.line(to: location) }
+        }
+        path.close()
+        return path
     }
 
     private static func dynamicTextAttributes(font: NSFont) -> [NSAttributedString.Key: Any] {

@@ -100,6 +100,8 @@ struct AgentUsageSnapshot: Equatable {
     var lastActivity: [AgentProvider: Date] = [:]
     /// Providers with anything on disk: usage, limits or a turn.
     var seen: Set<AgentProvider> = []
+    /// Every day on record, including days whose logs are gone.
+    var lifetime = AgentLifetimeUsage()
 
     func usage(_ period: AgentPeriod) -> AgentPeriodUsage { periods[period] ?? AgentPeriodUsage() }
     func working(_ provider: AgentProvider) -> [AgentLiveSession] { live.filter { $0.provider == provider } }

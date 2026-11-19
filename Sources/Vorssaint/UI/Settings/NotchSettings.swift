@@ -421,6 +421,7 @@ struct NotchSettings: View {
                     }
                 }
             }
+            NotchShortcutSettingsRows()
             Divider()
             let activities = FeatureStrings.notchActivities(l10n.language)
             SettingsFeatureSwitchRow(symbol: NotchControlItem.keepAwake.symbol, title: activities.keepAwakeActivity,

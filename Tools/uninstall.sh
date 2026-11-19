@@ -198,17 +198,17 @@ rm -rf "$HOME/Library/HTTPStorages/$BUNDLE" "$HOME/Library/HTTPStorages/$BUNDLE.
 # ordinary case, and prints an error over a successful uninstall.
 rm -f "$HOME/Library/Preferences/ByHost/$BUNDLE".*.plist(N)
 
-# The closed-lid rule under its current name and the two earlier ones, the
-# same files the app looks for. Each path is checked on its own. zsh passes an
-# unquoted string to a command as a single word, and one `ls` over all three
-# fails as soon as any of them is missing.
-RULES=(/etc/sudoers.d/vorssaint-clamshell /etc/sudoers.d/vorssaint-utils-clamshell /etc/sudoers.d/vorss-clamshell)
+# The closed-lid rule under its current name and the two earlier ones, plus
+# the Low Power Mode rule: the same files the app looks for. Each path is
+# checked on its own. zsh passes an unquoted string to a command as a single
+# word, and one `ls` over all of them fails as soon as any of them is missing.
+RULES=(/etc/sudoers.d/vorssaint-clamshell /etc/sudoers.d/vorssaint-lowpower /etc/sudoers.d/vorssaint-utils-clamshell /etc/sudoers.d/vorss-clamshell)
 found_rules=()
 for rule in "${RULES[@]}"; do
     [[ -e "$rule" ]] && found_rules+=("$rule")
 done
 if (( ${#found_rules} )); then
-    echo "▸ Removing closed-lid sudoers rule (asks for your admin password)…"
+    echo "▸ Removing Vorssaint sudoers rules (asks for your admin password)…"
     osascript -e "do shell script \"rm -f $found_rules\" with administrator privileges with prompt \"Vorssaint uninstaller\"" || true
 fi
 

@@ -1349,6 +1349,59 @@ enum FeatureCatalogTests {
                 && FanControlPolicy.menuBarValue(for: []) == nil
                 && FanControlPolicy.menuBarValue(for: [.infinity]) == nil,
                "fan RPM menu bar text supports one or several validated fans")
+        suite.expect(FanControlPolicy.percent(actual: 1_200, maximum: 2_400) == 50
+                && FanControlPolicy.percent(actual: 3_000, maximum: 2_400) == 100
+                && FanControlPolicy.percent(actual: 0, maximum: 2_400) == 0
+                && FanControlPolicy.percent(actual: 1_200, maximum: 0) == nil
+                && FanControlPolicy.percent(actual: .infinity, maximum: 2_400) == nil,
+               "fan percentage uses the reported maximum and clamps at 100")
+        suite.expect(FanControlPolicy.menuBarValue(for: [1_200], maximums: [2_400], unit: .percent) == "50%"
+                && FanControlPolicy.menuBarValue(for: [600, 1_200], maximums: [2_400, 2_400],
+                                                 unit: .percent) == "50%"
+                && FanControlPolicy.menuBarValue(for: [1_200], maximums: [2_400], unit: .rpm) == "1200"
+                && FanControlPolicy.menuBarValue(for: [1_200], maximums: [], unit: .percent) == "1200"
+                && FanControlPolicy.menuBarValue(for: [1_200, 600], maximums: [2_400, 0],
+                                                 unit: .percent) == "1200/600",
+               "fan menu bar text shows percent only when every fan has a usable maximum")
+        suite.expect(FanControlPolicy.displayValue(rpm: 1_800, maximum: 2_400, unit: .percent,
+                                                   rpmFormat: "%d RPM") == "75%"
+                && FanControlPolicy.displayValue(rpm: 1_800, maximum: nil, unit: .percent,
+                                                 rpmFormat: "%d RPM") == "1800 RPM"
+                && FanControlPolicy.displayValue(rpm: 1_800, maximum: 2_400, unit: .rpm,
+                                                 rpmFormat: "%d RPM") == "1800 RPM",
+               "fan detail readout follows the unit and falls back to RPM")
+        suite.expect(FanControlPolicy.detailValue(rpm: 1_800, maximum: 2_400, unit: .percent,
+                                                  rpmFormat: "%d RPM") == "75% · 1800 RPM"
+                && FanControlPolicy.detailValue(rpm: 1_800, maximum: 2_400, unit: .rpm,
+                                                rpmFormat: "%d RPM") == "1800 RPM · 75%"
+                && FanControlPolicy.detailValue(rpm: 1_800, maximum: nil, unit: .percent,
+                                                rpmFormat: "%d RPM") == "1800 RPM",
+               "fan detail rows show both units when the maximum is known")
+        suite.expect(FanControlPolicy.leadingFanIndex(speeds: [600, 1_200], maximums: [2_400, 2_400],
+                                                      unit: .percent) == 1
+                && FanControlPolicy.leadingFanIndex(speeds: [1_000, 1_000], maximums: [2_000, 2_400],
+                                                    unit: .percent) == 0
+                && FanControlPolicy.leadingFanIndex(speeds: [0, 0], maximums: [2_400, 2_400],
+                                                    unit: .percent) == 0
+                && FanControlPolicy.leadingFanIndex(speeds: [], maximums: [], unit: .percent) == nil,
+               "fan headline follows the busiest fan, first fan on ties")
+        // A 2317–6800 RPM fan, as on an M3 Pro MacBook Pro.
+        suite.expect(FanControlPolicy.minimumPercent(minimum: 2_317, maximum: 6_800) == 35
+                && FanControlPolicy.percentOfMaximum(level: 0, minimum: 2_317, maximum: 6_800) == 34
+                && FanControlPolicy.percentOfMaximum(level: 100, minimum: 2_317, maximum: 6_800) == 100
+                && FanControlPolicy.percentOfMaximum(level: 50, minimum: 2_317, maximum: 6_800) == 67,
+               "a cooling level converts to the same share of the maximum the readout shows")
+        suite.expect(FanControlPolicy.coolingLevel(forPercent: 34, minimum: 2_317, maximum: 6_800) == 0
+                && FanControlPolicy.coolingLevel(forPercent: 100, minimum: 2_317, maximum: 6_800) == 100
+                && FanControlPolicy.coolingLevel(forPercent: 67, minimum: 2_317, maximum: 6_800) == 50
+                && FanControlPolicy.coolingLevel(forPercent: 10, minimum: 2_317, maximum: 6_800) == 0
+                && FanControlPolicy.coolingLevel(forPercent: 50, minimum: 0, maximum: 0) == nil,
+               "a requested share of the maximum maps to the nearest valid cooling level")
+        for level in stride(from: 0, through: 100, by: 5) {
+            let shown = FanControlPolicy.percentOfMaximum(level: level, minimum: 2_317, maximum: 6_800)!
+            suite.expect(FanControlPolicy.coolingLevel(forPercent: Double(shown), minimum: 2_317, maximum: 6_800) == level,
+                         "the slider position for level \(level) applies that same level")
+        }
         suite.expect(FanControlPolicy.menuBarWidthUnits(fanCount: 1) == 12
                 && FanControlPolicy.menuBarWidthUnits(fanCount: 2) == 18
                 && FanControlPolicy.menuBarWidthUnits(fanCount: 0) == 0,

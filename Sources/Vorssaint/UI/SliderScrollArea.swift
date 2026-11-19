@@ -10,6 +10,13 @@ protocol SliderScrollTarget: AnyObject {
 }
 
 extension SliderScroll {
+    /// Whether the wheel and trackpad adjust level sliders. Off by default so
+    /// scrolling over a slider scrolls the list around it; sliders still
+    /// change by clicking and dragging.
+    static var adjustsLevels: Bool {
+        UserDefaults.standard.bool(forKey: DefaultsKey.sliderScrollAdjustsLevel)
+    }
+
     mutating func handle(_ event: NSEvent, current: Double, range: ClosedRange<Double>) -> Outcome {
         let phase: Phase
         if !event.momentumPhase.isEmpty { phase = .momentum }
@@ -45,16 +52,18 @@ struct SliderScrollArea: NSViewRepresentable {
     final class AreaView: NSView, SliderScrollTarget {
         var area: SliderScrollArea?
         var isEnabled = true
-        var acceptsSliderScroll: Bool { isEnabled && area != nil }
+        var acceptsSliderScroll: Bool { isEnabled && area != nil && SliderScroll.adjustsLevels }
         private var scroll = SliderScroll()
 
         override func hitTest(_ point: NSPoint) -> NSView? {
-            guard NSApp.currentEvent?.type == .scrollWheel else { return nil }
+            // With wheel adjustment off the overlay is invisible to every
+            // event, so the wheel reaches the scrolling list directly.
+            guard NSApp.currentEvent?.type == .scrollWheel, SliderScroll.adjustsLevels else { return nil }
             return super.hitTest(point)
         }
 
         override func scrollWheel(with event: NSEvent) {
-            guard let area, isEnabled else { return SliderScroll.pass(event, from: self) }
+            guard let area, acceptsSliderScroll else { return SliderScroll.pass(event, from: self) }
             switch scroll.handle(event, current: area.value, range: area.range) {
             case .pass: SliderScroll.pass(event, from: self)
             case .hold: break

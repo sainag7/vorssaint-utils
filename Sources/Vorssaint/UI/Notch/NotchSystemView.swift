@@ -9,6 +9,7 @@ struct NotchSystemView: View {
     @ObservedObject private var monitor = SystemMonitor.shared
     @ObservedObject private var l10n = L10n.shared
     @AppStorage(DefaultsKey.networkSpeedUnit) private var networkSpeedUnit = NetworkSpeedUnit.bytes
+    @AppStorage(DefaultsKey.fanSpeedUnit) private var fanSpeedUnit = FanSpeedUnit.percent
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private struct Card: Identifiable {
@@ -76,7 +77,14 @@ struct NotchSystemView: View {
         if AppFeature.fanControl.isAvailable, !snapshot.fanSpeeds.isEmpty {
             let strings = FeatureStrings.fanControl(l10n.language)
             cards.append(Card(kind: .fan, title: strings.title, symbol: "fanblades",
-                              value: snapshot.fanSpeeds.first.map { String(format: strings.rpmFormat, Int($0.rounded())) }))
+                              value: FanControlPolicy.leadingFanIndex(speeds: snapshot.fanSpeeds,
+                                                                      maximums: snapshot.fanMaximums,
+                                                                      unit: fanSpeedUnit).map { index in
+                                  FanControlPolicy.displayValue(rpm: snapshot.fanSpeeds[index],
+                                                                maximum: snapshot.fanMaximums.indices.contains(index)
+                                                                    ? snapshot.fanMaximums[index] : nil,
+                                                                unit: fanSpeedUnit, rpmFormat: strings.rpmFormat)
+                              }))
         }
         if AppFeature.connectedDevices.isAvailable {
             let strings = FeatureStrings.connectedDevices(l10n.language)

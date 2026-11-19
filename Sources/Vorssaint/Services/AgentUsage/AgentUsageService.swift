@@ -98,6 +98,8 @@ final class AgentUsageService: ObservableObject {
     private var publishScheduled = false
     /// The last snapshot handed over, to tell when time alone changes it.
     private var published = AgentUsageSnapshot()
+    /// Queue-confined; loaded from disk on the first publish.
+    private var lifetimeLedger: AgentLifetimeLedger?
     private var claudePlan: AgentPlan?
     /// The organization Claude Code signs in to, when its profile says.
     private var claudeOrganization: String?
@@ -632,6 +634,15 @@ final class AgentUsageService: ObservableObject {
                claudeApp: claudeAppSamples)
     }
 
+    /// Runs on `queue`. Folds the days still on disk into the saved ledger,
+    /// which keeps days whose logs are gone, and writes it when it grew.
+    private func updatedLifetime(with snapshot: AgentUsageSnapshot) -> AgentLifetimeUsage {
+        var ledger = lifetimeLedger ?? AgentLifetimeLedger.load()
+        if snapshot.loaded, ledger.merge(snapshot.days) { ledger.save() }
+        lifetimeLedger = ledger
+        return AgentLifetimeUsage(ledger)
+    }
+
     /// Runs on `queue` and hands the finished snapshot to the main thread.
     private func publish() {
         let session = readerSession
@@ -639,7 +650,8 @@ final class AgentUsageService: ObservableObject {
         var plans: [AgentProvider: AgentPlan] = [:]
         if let claudePlan { plans[.claude] = claudePlan }
         if let codex = AgentPlans.codex(planType: store.codexPlan) { plans[.codex] = codex }
-        let next = store.snapshot(plans: plans, providers: enabled, now: Date())
+        var next = store.snapshot(plans: plans, providers: enabled, now: Date())
+        next.lifetime = updatedLifetime(with: next)
         published = next
         checkBudget(next)
         let checked = enabled.contains(.claude) ? claudeAppSamples.last(where: {

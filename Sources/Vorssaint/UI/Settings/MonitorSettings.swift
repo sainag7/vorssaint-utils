@@ -16,6 +16,7 @@ struct MonitorSettings: View {
     @AppStorage(DefaultsKey.menuBarCombineTemperatures) private var combineTemperatures = true
     @AppStorage(DefaultsKey.menuBarSeparateMetrics) private var separateMetrics = false
     @AppStorage(DefaultsKey.menuBarMetricSpacing) private var metricSpacing = "standard"
+    @AppStorage(DefaultsKey.menuBarMetricGap) private var metricGap = MenuBarSpacingSupport.automaticGap
     @AppStorage(DefaultsKey.menuBarMetricAppearance) private var metricAppearance = "values"
     @AppStorage(DefaultsKey.menuBarHideIconWithMetrics) private var hideIconWithMetrics = false
     @AppStorage(DefaultsKey.monitorInterval) private var interval = 2
@@ -23,6 +24,7 @@ struct MonitorSettings: View {
     @AppStorage(DefaultsKey.temperatureUnit) private var temperatureUnit = TemperatureUnit.celsius.rawValue
     @AppStorage(DefaultsKey.networkSpeedUnit) private var networkSpeedUnit = NetworkSpeedUnit.bytes
     @AppStorage(DefaultsKey.monitorMemoryMetric) private var memoryMetric = "used"
+    @AppStorage(DefaultsKey.fanSpeedUnit) private var fanSpeedUnit = FanSpeedUnit.percent
     @AppStorage(DefaultsKey.panelShowFanControl) private var showFanControl = true
 
     var body: some View {
@@ -148,6 +150,7 @@ struct MonitorSettings: View {
                 .labelsHidden()
                 .fixedSize()
             }
+            metricGapRow
             SettingsRow(symbol: "eye.slash", title: l10n.s.menuBarHideIconToggle,
                         caption: l10n.s.menuBarHideIconCaption) {
                 Toggle(l10n.s.menuBarHideIconToggle, isOn: $hideIconWithMetrics).labelsHidden()
@@ -184,6 +187,18 @@ struct MonitorSettings: View {
                     Picker(title, selection: $networkSpeedUnit) {
                         Text("MB/s").tag(NetworkSpeedUnit.bytes)
                         Text("Mbps").tag(NetworkSpeedUnit.bits)
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .fixedSize()
+                }
+            }
+            if AppFeature.fanControl.isAvailable {
+                let title = FeatureStrings.monitorLayout(l10n.language).fanSpeedUnit
+                SettingsRow(symbol: "fanblades", title: title) {
+                    Picker(title, selection: $fanSpeedUnit) {
+                        Text("%").tag(FanSpeedUnit.percent)
+                        Text("RPM").tag(FanSpeedUnit.rpm)
                     }
                     .pickerStyle(.segmented)
                     .labelsHidden()
@@ -241,6 +256,38 @@ struct MonitorSettings: View {
                 .foregroundStyle(.secondary)
             SettingsRow(symbol: "arrow.up.to.line", title: GraphScaleStrings.localized(l10n.language).title) {
                 Toggle(GraphScaleStrings.localized(l10n.language).title, isOn: $graphScale).labelsHidden()
+            }
+        }
+    }
+
+    /// Automatic leaves the spacing to macOS; off, a slider sets the points
+    /// between metrics, in their own items or in one.
+    private var metricGapRow: some View {
+        let strings = MenuBarGapStrings.localized(l10n.language)
+        let gap = MenuBarSpacingSupport.sanitizedGap(metricGap)
+        let automatic = Binding<Bool>(
+            get: { gap == nil },
+            set: { metricGap = $0 ? MenuBarSpacingSupport.automaticGap : 4 }
+        )
+        let points = Binding<Double>(
+            get: { Double(gap ?? 4) },
+            set: { metricGap = MenuBarSpacingSupport.sanitizedGap(Int($0.rounded())) ?? 4 }
+        )
+        return SettingsRow(symbol: "arrow.left.and.right.square", title: strings.title,
+                           caption: strings.caption) {
+            HStack(spacing: 10) {
+                if gap != nil {
+                    Slider(value: points,
+                           in: Double(MenuBarSpacingSupport.gapRange.lowerBound)...Double(MenuBarSpacingSupport.gapRange.upperBound),
+                           step: 1)
+                        .frame(width: 140)
+                    Text("\(gap ?? 0) pt")
+                        .font(.callout.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                        .frame(width: 40, alignment: .trailing)
+                }
+                Toggle(strings.automatic, isOn: automatic)
+                    .toggleStyle(.checkbox)
             }
         }
     }
@@ -394,6 +441,7 @@ private struct MenuBarMetricTile: View {
     @AppStorage(DefaultsKey.menuBarMemoryStyle) private var memoryStyle = "percent"
     @AppStorage(DefaultsKey.menuBarNetworkUploadFirst) private var uploadFirst = false
     @AppStorage(DiskMenuBarStyle.defaultsKey) private var diskStyle = DiskMenuBarStyle.percent
+    @AppStorage(BatteryMenuBarStyle.defaultsKey) private var batteryStyle = BatteryMenuBarStyle.inside
 
     init(metric: MenuBarMetric) {
         self.metric = metric
@@ -418,6 +466,9 @@ private struct MenuBarMetricTile: View {
             case DiskMenuBarStyle.used: return l10n.s.diskMenuBarUsedSpace
             default: return l10n.s.diskMenuBarUsedPercentage
             }
+        case .battery where PowerSampler.hasInternalBattery:
+            let strings = BatteryDisplayStrings.localized(l10n.language)
+            return batteryStyle == .inside ? strings.styleInside : strings.styleIconAndPercent
         default: return ""
         }
     }
@@ -440,6 +491,13 @@ private struct MenuBarMetricTile: View {
                 Text(l10n.s.diskMenuBarUsedPercentage).tag(DiskMenuBarStyle.percent)
                 Text(l10n.s.diskMenuBarAvailableSpace).tag(DiskMenuBarStyle.free)
                 Text(l10n.s.diskMenuBarUsedSpace).tag(DiskMenuBarStyle.used)
+            }
+            .pickerStyle(.menu))
+        case .battery where PowerSampler.hasInternalBattery:
+            let strings = BatteryDisplayStrings.localized(l10n.language)
+            return AnyView(Picker(strings.styleLabel, selection: $batteryStyle) {
+                Text(strings.styleInside).tag(BatteryMenuBarStyle.inside)
+                Text(strings.styleIconAndPercent).tag(BatteryMenuBarStyle.iconAndPercent)
             }
             .pickerStyle(.menu))
         default:

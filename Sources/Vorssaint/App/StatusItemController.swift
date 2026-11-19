@@ -612,9 +612,6 @@ final class StatusItemController {
 
             metricStatusItemFocus[group.id] = group.focusMetric
             let item = metricStatusItems[group.id] ?? installMetricStatusItem(for: group)
-            if item.length != NSStatusItem.variableLength {
-                item.length = NSStatusItem.variableLength
-            }
             guard let button = item.button else { continue }
 
             let full = NSMutableAttributedString(attributedString: title)
@@ -622,6 +619,14 @@ final class StatusItemController {
             full.addAttribute(.font,
                               value: font,
                               range: NSRange(location: 0, length: full.length))
+            // A custom gap replaces AppKit's own padding with a fixed width:
+            // the title plus the chosen space. Automatic keeps variable length.
+            let length = MenuBarSpacingSupport.customGap.map {
+                CGFloat(MenuBarSpacingSupport.itemLength(titleWidth: Double(full.size().width), gap: $0))
+            } ?? NSStatusItem.variableLength
+            if item.length != length {
+                item.length = length
+            }
             if button.font?.isEqual(font) != true {
                 button.font = font
             }

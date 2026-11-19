@@ -258,14 +258,11 @@ struct PowerSection: View {
                         PanelInlineHideButton(isVisible: $showCharge)
                     }
                 }
-                if graphBattery, monitor.snapshot.batteryHistory.count >= 2 {
-                    Sparkline(values: monitor.snapshot.batteryHistory,
-                              color: PanelMetricColor.green(for: colorScheme),
-                              maxValue: 1,
-                              showsZeroBaseline: true)
-                        .frame(height: 30)
-                        .graphCeilingLabel(MetricFormat.percent(1))
+                if graphBattery {
+                    BatteryHourlyUsageChart()
+                        .padding(.top, 2)
                 }
+                LowPowerModeRow()
                 EnergyAppsBreakdown()
             }
         }
@@ -368,6 +365,32 @@ struct PowerSection: View {
             if editing {
                 PanelInlineHideButton(isVisible: visible)
             }
+        }
+    }
+}
+
+/// Switches macOS Low Power Mode from the Power page; follows changes made
+/// in System Settings or Control Center too.
+private struct LowPowerModeRow: View {
+    @ObservedObject private var l10n = L10n.shared
+    @ObservedObject private var mode = LowPowerModeController.shared
+
+    var body: some View {
+        let title = LowPowerModeStrings.localized(l10n.language).title
+        HStack(spacing: 8) {
+            Image(systemName: "leaf.fill")
+                .font(.system(size: 9))
+                .foregroundStyle(mode.isOn ? Color.yellow : Color.secondary)
+                .frame(width: 10)
+            Text(title)
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+            Spacer(minLength: 8)
+            Toggle(title, isOn: Binding(get: { mode.isOn }, set: { mode.set($0) }))
+                .toggleStyle(.switch)
+                .controlSize(.mini)
+                .labelsHidden()
+                .disabled(mode.isSwitching)
         }
     }
 }

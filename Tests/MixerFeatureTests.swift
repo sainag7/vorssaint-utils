@@ -994,6 +994,17 @@ enum MixerFeatureTests {
                 && !MixerRoutingSupport.needsPersistentFinderRow(showFinder: false,
                                                                  hasFinderRow: false),
                "Finder is never duplicated and stays absent when hidden")
+        suite.expect(MixerRoutingSupport.callAudioHostBundle(processName: "avconferenced", processBundleID: nil)
+                        == "com.apple.FaceTime"
+                && MixerRoutingSupport.callAudioHostBundle(processName: nil,
+                                                           processBundleID: "com.apple.avconferenced")
+                        == "com.apple.FaceTime"
+                && MixerRoutingSupport.callAudioHostBundle(processName: "coreaudiod", processBundleID: nil) == nil
+                && MixerRoutingSupport.callAudioHostBundle(processName: nil, processBundleID: nil) == nil,
+               "FaceTime call audio from avconferenced belongs to the FaceTime row; other daemons stay unlisted")
+        suite.expect(Defaults.registeredDefaults[DefaultsKey.sliderScrollAdjustsLevel] as? Bool == false
+                && SettingsBackupSupport.exportKeys().contains(DefaultsKey.sliderScrollAdjustsLevel),
+               "scroll-wheel slider adjustment starts off and travels in settings backups")
         suite.expect(MixerRoutingSupport.bypassesProcessTap(bundleIdentifier: "us.zoom.xos", name: "zoom.us"),
                "Zoom is kept out of process-tap audio routing")
         suite.expect(MixerRoutingSupport.bypassesProcessTap(bundleIdentifier: "us.zoom.ZoomAutoUpdater", name: "Zoom"),

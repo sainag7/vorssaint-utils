@@ -12,7 +12,8 @@ enum NotchModule: String, CaseIterable, Identifiable {
 
     var symbol: String {
         switch self {
-        case .controls: return "slider.horizontal.3"
+        // The island's home page, so it reads as home rather than settings.
+        case .controls: return "house"
         // A speaker reads as sound at a glance; faders beside the settings
         // gear looked like a second settings button.
         case .mixer: return "speaker.wave.2"
@@ -1285,8 +1286,8 @@ enum NotchControlSetupRequirement: Equatable {
 }
 
 enum NotchControlItem: String, CaseIterable, Identifiable {
-    case volume, brightness, keyboardLight, music, mixer, keepAwake, timer, calendar, microphone, screenshot, recording, speedTest, panel, commandBar, scratchpad
-    static let defaultHidden = "keyboardLight,microphone,screenshot,recording,speedTest,panel,commandBar,scratchpad"
+    case volume, brightness, keyboardLight, music, mixer, keepAwake, timer, calendar, microphone, screenshot, recording, speedTest, panel, commandBar, scratchpad, shortcut
+    static let defaultHidden = "keyboardLight,microphone,screenshot,recording,speedTest,panel,commandBar,scratchpad,shortcut"
     var id: String { rawValue }
 
     /// A level draws as a slider in the card row; everything else is a tile.
@@ -1316,6 +1317,8 @@ enum NotchControlItem: String, CaseIterable, Identifiable {
         case .music: return NotchModule.music.symbol
         case .timer: return NotchModule.timer.symbol
         case .calendar: return NotchModule.calendar.symbol
+        // Follows the shortcut it runs, such as a camera for a FaceTime call.
+        case .shortcut: return NotchShortcutTile.symbol()
         }
     }
 
@@ -1329,7 +1332,7 @@ enum NotchControlItem: String, CaseIterable, Identifiable {
         case .recording: return .feature(.screenRecorder)
         case .commandBar: return .feature(.commandBar)
         case .scratchpad: return .feature(.scratchpad)
-        case .panel: return .none
+        case .panel, .shortcut: return .none
         case .mixer: return .page(.mixer, feature: .mixer)
         case .speedTest: return .page(.system, feature: .monitorNetwork)
         case .music: return .page(.music, feature: nil)
@@ -1351,7 +1354,8 @@ enum NotchControlItem: String, CaseIterable, Identifiable {
         case .speedTest: return AppFeature.monitorNetwork.isAvailable(in: defaults) && NotchSupport.modules(in: defaults).contains(.system)
         case .commandBar: return AppFeature.commandBar.isAvailable(in: defaults)
         case .scratchpad: return AppFeature.scratchpad.isAvailable(in: defaults)
-        case .panel: return true
+        // Without a shortcut chosen, the tile opens Settings to choose one.
+        case .panel, .shortcut: return true
         case .music: return NotchSupport.modules(in: defaults).contains(.music)
         case .timer: return NotchSupport.modules(in: defaults).contains(.timer)
         case .calendar: return NotchSupport.modules(in: defaults).contains(.calendar)

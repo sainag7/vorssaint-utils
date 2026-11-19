@@ -144,7 +144,7 @@ struct NotchLevelSlider: NSViewRepresentable {
 
 private final class NotchLevelControl: NSSlider, SliderScrollTarget {
     var scrollable = true
-    var acceptsSliderScroll: Bool { scrollable && isEnabled }
+    var acceptsSliderScroll: Bool { scrollable && isEnabled && SliderScroll.adjustsLevels }
     var trackingChanged: ((Bool) -> Void)?
     private var scroll = SliderScroll()
     private var scrolling = false

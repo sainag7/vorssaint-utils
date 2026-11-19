@@ -198,6 +198,31 @@ enum MenuBarSpacingSupport {
         return out
     }
 
+    // MARK: Custom gap
+
+    /// Stored value meaning "leave the spacing to AppKit and the glue string".
+    static let automaticGap = -1
+    static let gapRange = 0...16
+
+    /// A stored gap in points, or nil for automatic. Anything outside the
+    /// range other than automatic is clamped, so a hand-edited or imported
+    /// value can never push the items apart without bound.
+    static func sanitizedGap(_ stored: Int?) -> Int? {
+        guard let stored, stored != automaticGap else { return nil }
+        return min(max(stored, gapRange.lowerBound), gapRange.upperBound)
+    }
+
+    /// The user's gap between menu bar metrics, nil for automatic.
+    static var customGap: Int? {
+        sanitizedGap(UserDefaults.standard.object(forKey: DefaultsKey.menuBarMetricGap) as? Int)
+    }
+
+    /// A separate metric item's fixed width: its title plus the gap, split
+    /// evenly on both sides because the button centers its title.
+    static func itemLength(titleWidth: Double, gap: Int) -> Double {
+        (max(0, titleWidth)).rounded(.up) + Double(max(0, gap))
+    }
+
     /// The glue string drawn between two metric blocks.
     static func blockGlue(readableStyle: Bool, spacing: MenuBarMetricSpacing) -> String {
         switch spacing {

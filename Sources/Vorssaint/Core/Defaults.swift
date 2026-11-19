@@ -157,6 +157,7 @@ enum DefaultsKey {
     static let mixerCallAppVolumeEnabled = "mixerCallAppVolumeEnabled" // bundle ids explicitly allowed to process call audio despite screen-sharing echo
     static let mixerUniversalOutputDevice = "mixerUniversalOutputDevice" // retired: all-apps output saved by 3.4.1 betas
     static let mixerShowFinder = "mixerShowFinder"
+    static let sliderScrollAdjustsLevel = "sliderScrollAdjustsLevel" // wheel/trackpad changes mixer and island level sliders
     static let mixerAppArrangement = "mixerAppArrangement"
     static let mixerHideInactiveApps = "mixerHideInactiveApps"
     static let mixerHiddenApps = "mixerHiddenApps"        // [persistence id: display name] kept out of the mixer list (issue #300)
@@ -415,6 +416,7 @@ enum DefaultsKey {
     static let menuBarFanSpeed = "menuBarFanSpeed"
     static let menuBarPreset = "menuBarPreset"           // dense
     static let menuBarMetricSpacing = "menuBarMetricSpacing" // standard | compact
+    static let menuBarMetricGap = "menuBarMetricGap" // points between metrics, 0...16; -1 = automatic
     static let menuBarMetricAppearance = "menuBarMetricAppearance" // values | bars
     static let menuBarUsageBarNormalColor = "menuBarUsageBarNormalColor" // #RRGGBB
     static let menuBarUsageBarElevatedColor = "menuBarUsageBarElevatedColor" // #RRGGBB
@@ -430,6 +432,7 @@ enum DefaultsKey {
     static let menuBarLabelStyle = "menuBarLabelStyle"     // compact | classic
     static let menuBarMemoryStyle = "menuBarMemoryStyle"   // dot | percent | both
     static let menuBarDiskStyle = "menuBarDiskStyle"       // percent | free | used
+    static let menuBarBatteryStyle = BatteryMenuBarStyle.defaultsKey // inside | iconAndPercent
     static let monitorMemoryMetric = "monitorMemoryMetric" // used | app
     static let monitorInterval = "monitorIntervalSeconds"  // sampling cadence: 1/2/5
     static let temperatureUnit = "temperatureUnit"          // celsius | fahrenheit
@@ -479,6 +482,7 @@ enum DefaultsKey {
     static let monitorNetAddresses = "monitorNetAddresses"
     static let monitorNetTest = "monitorNetTest"
     static let networkSpeedUnit = "networkSpeedUnit" // bytes | bits, for every live network speed readout
+    static let fanSpeedUnit = FanSpeedUnit.defaultsKey // rpm | percent, for fan speed readouts
     static let monitorDiskUsage = "monitorDiskUsage"
     static let monitorDiskActivity = "monitorDiskActivity"
     static let monitorDiskSMART = "monitorDiskSMART"
@@ -845,7 +849,10 @@ enum DefaultsKey {
     // Travels with the controls so old backups migrate and later choices survive.
     static let notchScratchpadControlHidden = "notchScratchpadControlHidden"
     static let notchKeyboardLightControlHidden = "notchKeyboardLightControlHidden"
+    static let notchRunShortcutControlHidden = "notchRunShortcutControlHidden"
     static let notchControlOrder = "notchControlOrder"
+    static let notchRunShortcutName = "notchRunShortcutName" // the Shortcuts app shortcut the island tile runs
+    static let notchRunShortcutSymbol = "notchRunShortcutSymbol" // "" guesses the tile icon from the name
     static let notchSize = "notchSize"
     static let notchOutlineEnabled = "notchOutlineEnabled"
     static let notchHideMenuBarGap = "notchHideMenuBarGap"
@@ -1335,6 +1342,7 @@ enum Defaults {
         DefaultsKey.updateShowcaseIntroVersion: "",
         DefaultsKey.updateShowcaseMediaOverride: "",
         DefaultsKey.mixerShowFinder: true,
+        DefaultsKey.sliderScrollAdjustsLevel: false,
         DefaultsKey.mixerHideInactiveApps: false,
         DefaultsKey.mixerAppArrangement: "",
         DefaultsKey.mixerLowerVolumeOnHeadphonesDisconnect: false,
@@ -1462,7 +1470,10 @@ enum Defaults {
         DefaultsKey.notchHiddenControls: NotchControlItem.defaultHidden,
         DefaultsKey.notchScratchpadControlHidden: false,
         DefaultsKey.notchKeyboardLightControlHidden: false,
+        DefaultsKey.notchRunShortcutControlHidden: false,
         DefaultsKey.notchControlOrder: "",
+        DefaultsKey.notchRunShortcutName: "",
+        DefaultsKey.notchRunShortcutSymbol: "",
         DefaultsKey.notchSize: NotchSize.spacious.rawValue,
         DefaultsKey.notchOutlineEnabled: false,
         DefaultsKey.notchHideMenuBarGap: false,
@@ -1682,6 +1693,7 @@ enum Defaults {
         DefaultsKey.menuBarFanSpeed: false,
         DefaultsKey.menuBarPreset: "dense",
         DefaultsKey.menuBarMetricSpacing: "compact",  // owner's call: compact by default in 3.1.8
+        DefaultsKey.menuBarMetricGap: MenuBarSpacingSupport.automaticGap,
         DefaultsKey.menuBarMetricAppearance: "values",
         DefaultsKey.menuBarUsageBarNormalColor: "#64D2FF",
         DefaultsKey.menuBarUsageBarElevatedColor: "#FFD60A",
@@ -1703,6 +1715,7 @@ enum Defaults {
         DefaultsKey.menuBarLabelStyle: "compact",
         DefaultsKey.menuBarMemoryStyle: "percent",
         DefaultsKey.menuBarDiskStyle: "percent",
+        DefaultsKey.menuBarBatteryStyle: BatteryMenuBarStyle.inside.rawValue,
         DefaultsKey.monitorMemoryMetric: "used",
         DefaultsKey.monitorShowSystem: true,
         DefaultsKey.monitorShowNetwork: true,
@@ -1742,6 +1755,7 @@ enum Defaults {
         DefaultsKey.monitorNetAddresses: true,
         DefaultsKey.monitorNetTest: true,
         DefaultsKey.networkSpeedUnit: NetworkSpeedUnit.bytes.rawValue,
+        DefaultsKey.fanSpeedUnit: FanSpeedUnit.percent.rawValue,
         DefaultsKey.monitorDiskUsage: true,
         DefaultsKey.monitorDiskActivity: true,
         DefaultsKey.monitorDiskSMART: true,
@@ -2059,6 +2073,7 @@ enum Defaults {
         recheckBrightnessDDCWriteOnlyPaths(in: defaults)
         hideScratchpadControlOnce(in: defaults)
         hideKeyboardLightControlOnce(in: defaults)
+        hideRunShortcutControlOnce(in: defaults)
         // The "all apps" output choice now lasts one session; a saved one
         // would move apps that chose their own output after every launch.
         defaults.removeObject(forKey: DefaultsKey.mixerUniversalOutputDevice)
@@ -2114,6 +2129,7 @@ enum Defaults {
         }
         let automaticKeys: Set<String> = [DefaultsKey.notchScratchpadControlHidden,
                                           DefaultsKey.notchKeyboardLightControlHidden,
+                                          DefaultsKey.notchRunShortcutControlHidden,
                                           DefaultsKey.notchHidesMenuBarIcon,
                                           DefaultsKey.notchAgentsOptInMigrated]
         let wasConfigured = saved.keys.contains {
@@ -2175,6 +2191,18 @@ enum Defaults {
         var hidden = saved.split(separator: ",").map(String.init)
         guard !hidden.contains(NotchControlItem.keyboardLight.rawValue) else { return }
         hidden.append(NotchControlItem.keyboardLight.rawValue)
+        defaults.set(hidden.joined(separator: ","), forKey: DefaultsKey.notchHiddenControls)
+    }
+
+    /// The Run Shortcut tile joined the hidden controls the same way; a list
+    /// saved before it would otherwise show a tile with nothing to run.
+    static func hideRunShortcutControlOnce(in defaults: UserDefaults) {
+        guard !defaults.bool(forKey: DefaultsKey.notchRunShortcutControlHidden) else { return }
+        defaults.set(true, forKey: DefaultsKey.notchRunShortcutControlHidden)
+        guard let saved = defaults.string(forKey: DefaultsKey.notchHiddenControls) else { return }
+        var hidden = saved.split(separator: ",").map(String.init)
+        guard !hidden.contains(NotchControlItem.shortcut.rawValue) else { return }
+        hidden.append(NotchControlItem.shortcut.rawValue)
         defaults.set(hidden.joined(separator: ","), forKey: DefaultsKey.notchHiddenControls)
     }
 

@@ -252,6 +252,7 @@ enum SettingsDirectory {
 #endif
         let mascot = FeatureStrings.notchMascot(language)
         let activities = FeatureStrings.notchActivities(language)
+        let runShortcut = NotchShortcutStrings.localized(language)
         let lockScreen = FeatureStrings.notchLockScreen(language)
         let hover = state.on(DefaultsKey.notchOpenOnHover)
         let hideFullscreen = state.on(DefaultsKey.notchHideInFullscreen)
@@ -267,6 +268,7 @@ enum SettingsDirectory {
             .init([notch.capsuleFit, notch.width, notch.height, notch.fromTop],
                   notch: .layout, when: state.hardware.plainDisplay && state.capsule),
             .init([activities.keepAwakeActivity], notch: .module(.controls)),
+            .init([runShortcut.title, runShortcut.pick, runShortcut.icon, "shortcuts", "facetime"], notch: .module(.controls)),
             .init([notch.playingMusic, notchMusic.includeOtherPlayers, notchMusic.showVolume, notchMusic.preferredPlayer,
                    notchMusic.enableLyrics, notchMusic.browserCovers, notchMusic.enableQueue, notchMusic.liveEqualizer,
                    "music"], notch: .module(.music)),
@@ -368,13 +370,15 @@ enum SettingsDirectory {
                                               when: state.hardware.bluetoothSleep && state.on(DefaultsKey.bluetoothSleepEnabled)),
                                        ]),
                 SettingsDirectoryItem(page: .monitor, title: s.tabMonitor, icon: "chart.line.uptrend.xyaxis",
-                                       keywords: [s.menuBarSpacingLabel, s.menuBarHideIconToggle, barStyle.label,
+                                       keywords: [s.menuBarSpacingLabel, MenuBarGapStrings.localized(language).title,
+                                                  s.menuBarHideIconToggle, barStyle.label,
                                                   barStyle.bars, barStyle.values, s.monitorSeparateMenuBarMetrics,
                                                   s.monitorIntervalLabel, s.temperatures, GraphScaleStrings.localized(language).title],
                                        featureKeywords: [
                                         (.monitorMemory, [s.monitorMemoryPressureDot, s.monitorMemoryMetricLabel]),
                                         (.monitorNetwork, [FeatureStrings.monitorLayout(language).networkSpeedUnit]),
-                                        (.fanControl, [FeatureStrings.fanControl(language).menuBarTitle]),
+                                        (.fanControl, [FeatureStrings.fanControl(language).menuBarTitle,
+                                                       FeatureStrings.monitorLayout(language).fanSpeedUnit]),
                                        ], terms: [
                                         .init([s.monitorCombineTemperatures], when: !state.bars),
                                         .init([barStyle.customize, barStyle.normalColor, barStyle.mediumColor, barStyle.highColor,

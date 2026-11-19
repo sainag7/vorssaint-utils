@@ -308,6 +308,7 @@ if (( TEST )); then
         Sources/Vorssaint/Services/AgentUsage/Harness/OpenCodeReader.swift
         Sources/Vorssaint/Services/AgentUsage/Harness/CopilotReader.swift
         Sources/Vorssaint/Services/AgentUsage/AgentUsageSummary.swift
+        Sources/Vorssaint/Services/AgentUsage/AgentLifetimeLedger.swift
         Sources/Vorssaint/Services/AgentUsage/AgentUsageStore.swift
         Sources/Vorssaint/Services/AgentUsage/AgentUsageArchive.swift
         Sources/Vorssaint/Services/AgentUsage/AgentClaudeAppUsage.swift
@@ -326,6 +327,7 @@ if (( TEST )); then
         Sources/Vorssaint/Services/Notch/NotchCalendarSupport.swift
         Sources/Vorssaint/Services/Notch/NotchKeepAwakeSupport.swift
         Sources/Vorssaint/Services/Notch/NotchSupport.swift
+        Sources/Vorssaint/Services/Notch/NotchShortcutSupport.swift
         Sources/Vorssaint/Services/Notch/NotchAudioLevelSupport.swift
         Sources/Vorssaint/Services/Notch/NotchVolumeKeyGate.swift
         Sources/Vorssaint/Services/Notch/NotchMusicSupport.swift
@@ -560,6 +562,7 @@ if (( TEST )); then
         Sources/Vorssaint/Services/SudoersSupport.swift
         Sources/Vorssaint/Services/Metrics/BatteryTimeSupport.swift
         Sources/Vorssaint/Services/Metrics/BatteryPowerSupport.swift
+        Sources/Vorssaint/Services/Metrics/BatteryUsageLedger.swift
         Sources/Vorssaint/Services/BoundedProcessRunner.swift
         Sources/Vorssaint/Services/DetachedProcess.swift
         Sources/Vorssaint/Services/ShellSupport.swift
@@ -585,6 +588,8 @@ if (( TEST )); then
         Sources/Vorssaint/Core/WindowDirectionalStrings.swift
         Sources/Vorssaint/Core/PointerDisplayStrings.swift
         Sources/Vorssaint/Core/GraphScaleStrings.swift
+        Sources/Vorssaint/Core/MenuBarGapStrings.swift
+        Sources/Vorssaint/Core/NotchShortcutStrings.swift
         Sources/Vorssaint/Core/NotchLowBatteryStrings.swift
         Sources/Vorssaint/Services/CleaningMode/CleaningUnlockCounter.swift
         Sources/Vorssaint/Services/CleaningMode/CleaningMouseReleaseGate.swift

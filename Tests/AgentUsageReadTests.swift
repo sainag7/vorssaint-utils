@@ -96,7 +96,40 @@ enum AgentUsageReadTests {
         func schedulePublish() {}
     }
 
+    static func runLifetimeLedger(_ suite: TestSuite) {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "UTC")!
+        func bucket(_ day: Int, tokens: Int, requests: Int = 1, cost: Double? = 1) -> AgentBucket {
+            var totals = AgentTotals()
+            totals.tokens.input = tokens
+            totals.requests = requests
+            if let cost { totals.cost = cost } else { totals.unpriced = 1 }
+            let start = calendar.date(from: DateComponents(year: 2026, month: 9, day: day))!
+            return AgentBucket(start: start, byProvider: [.claude: totals])
+        }
+        var ledger = AgentLifetimeLedger()
+        suite.expect(ledger.merge([bucket(24, tokens: 100), bucket(25, tokens: 0, requests: 0)], calendar: calendar)
+                && ledger.tokens == 100 && ledger.days.count == 1 && ledger.firstDay == "2026-09-24",
+               "the lifetime ledger records days with use and skips empty ones")
+        suite.expect(!ledger.merge([bucket(24, tokens: 40)], calendar: calendar) && ledger.tokens == 100,
+               "a day whose logs were deleted never lowers the lifetime total")
+        suite.expect(ledger.merge([bucket(24, tokens: 150), bucket(26, tokens: 50)], calendar: calendar)
+                && ledger.tokens == 200,
+               "a growing day and a new day both raise the lifetime total")
+        ledger.merge([bucket(27, tokens: 10, cost: nil)], calendar: calendar)
+        suite.expect(!ledger.fullyPriced && ledger.tokens == 210,
+               "an unpriced day keeps lifetime cost from being presented as complete")
+        let usage = AgentLifetimeUsage(ledger, calendar: calendar)
+        suite.expect(usage.tokens == 210
+                && usage.since == calendar.date(from: DateComponents(year: 2026, month: 9, day: 24)),
+               "lifetime usage reports its total and its first day on record")
+        let data = try? JSONEncoder().encode(ledger)
+        suite.expect(data.flatMap { try? JSONDecoder().decode(AgentLifetimeLedger.self, from: $0) } == ledger,
+               "the lifetime ledger survives a save and load round trip")
+    }
+
     static func run(_ suite: TestSuite) {
+        runLifetimeLedger(suite)
         let folder = FileManager.default.temporaryDirectory.appending(path: "vorss-streaming-\(UUID().uuidString)")
         defer {
             AgentLogReader.beforeLine = nil

@@ -112,6 +112,7 @@ struct NotchControlsView: View {
             NotchActionTile(symbol: item.symbol, title: item.title(l10n), action: service.openScratchpad)
         case .timer: NotchTimerTile(service: service)
         case .calendar: NotchCalendarTile(service: service)
+        case .shortcut: NotchRunShortcutTile(service: service)
         case .volume, .brightness, .keyboardLight, .music: EmptyView()
         }
     }
@@ -135,7 +136,26 @@ extension NotchControlItem {
         case .music: return NotchModule.music.title(l10n.language)
         case .timer: return NotchModule.timer.title(l10n.language)
         case .calendar: return NotchModule.calendar.title(l10n.language)
+        case .shortcut:
+            let name = NotchShortcutTile.name()
+            return name.isEmpty ? NotchShortcutStrings.localized(l10n.language).title : name
         }
+    }
+}
+
+/// Runs the shortcut chosen in Settings under that shortcut's own name; with
+/// none chosen yet it opens Settings where one is picked.
+struct NotchRunShortcutTile: View {
+    @ObservedObject var service: NotchService
+    @ObservedObject private var l10n = L10n.shared
+    @AppStorage(DefaultsKey.notchRunShortcutName) private var name = ""
+    @AppStorage(DefaultsKey.notchRunShortcutSymbol) private var chosenSymbol = ""
+
+    var body: some View {
+        let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        NotchActionTile(symbol: NotchShortcutTile.symbol(chosen: chosenSymbol, name: name),
+                        title: name.isEmpty ? NotchShortcutStrings.localized(l10n.language).title : name,
+                        action: service.runShortcut)
     }
 }
 

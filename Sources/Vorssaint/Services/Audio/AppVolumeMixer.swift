@@ -1792,7 +1792,8 @@ final class AppVolumeMixer: ObservableObject {
             // Show every regular app that holds an audio connection, not only
             // the ones making sound this instant, so apps are adjustable before
             // they play and stay put between sounds.
-            guard let app = ResponsibleProcess.regularAppOwner(of: pid) else { continue }
+            guard let app = ResponsibleProcess.regularAppOwner(of: pid)
+                    ?? Self.callAudioHostApp(for: object, pid: pid) else { continue }
             let owner = app.processIdentifier
             let name = ResponsibleProcess.displayName(pid: owner, fallback: app.localizedName ?? "pid \(owner)")
             // Bypassed apps still get a row — hiding them read
@@ -2467,6 +2468,16 @@ final class AppVolumeMixer: ObservableObject {
     /// The bundle id the audio HAL itself reports for a process object. Used
     /// only to fill in an identity the running-application lookup could not
     /// provide, never to override it.
+    /// The running call app a system daemon plays audio for (FaceTime's
+    /// `avconferenced`), so its call audio joins that app's row. Nil when the
+    /// app is not running: the daemon's audio then stays untouched.
+    private static func callAudioHostApp(for object: AudioObjectID, pid: pid_t) -> NSRunningApplication? {
+        guard let bundle = MixerRoutingSupport.callAudioHostBundle(
+                processName: ResponsibleProcess.displayName(pid: pid, fallback: ""),
+                processBundleID: processBundleIdentifier(of: object)) else { return nil }
+        return NSRunningApplication.runningApplications(withBundleIdentifier: bundle).first
+    }
+
     private static func processBundleIdentifier(of object: AudioObjectID) -> String? {
         guard #available(macOS 14.4, *) else { return nil }
         var bundleRef: CFString = "" as CFString

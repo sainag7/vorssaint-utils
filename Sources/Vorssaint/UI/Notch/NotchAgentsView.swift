@@ -861,6 +861,10 @@ private struct NotchAgentActivityCard: View {
             Text(AgentFormat.span(days: snapshot.days.count, locale: locale))
                 .font(.system(size: 9.5)).foregroundStyle(.secondary).lineLimit(1)
             Spacer(minLength: 4)
+            if snapshot.lifetime.tokens > 0 || snapshot.lifetime.cost > 0 {
+                figure(text.lifetime, lifetimeCost)
+                    .help(lifetimeHelp)
+            }
             figure(text.activeDays, "\(active.count)")
             if let day = pointed ?? busiest {
                 figure(pointed == nil ? text.busiestDay : day.start.formatted(.dateTime.weekday(.wide).locale(locale)),
@@ -881,6 +885,24 @@ private struct NotchAgentActivityCard: View {
 
     private func value(_ totals: AgentTotals, byCost: Bool) -> String {
         byCost ? AgentFormat.cost(totals.cost) : AgentFormat.tokens(totals.tokens.total)
+    }
+
+    /// Everything spent on record, at the same prices as the rest of the
+    /// island. A "+" marks a total that leaves out responses from a model
+    /// without a known price, so it is a floor, not the exact figure.
+    private var lifetimeCost: String {
+        let lifetime = snapshot.lifetime
+        return AgentFormat.cost(lifetime.cost) + (lifetime.fullyPriced ? "" : "+")
+    }
+
+    /// The tokens behind the cost and the first day on record.
+    private var lifetimeHelp: String {
+        let lifetime = snapshot.lifetime
+        var parts = [text.lifetime, text.tokens(AgentFormat.tokens(lifetime.tokens))]
+        if let since = lifetime.since {
+            parts.append(since.formatted(.dateTime.day().month(.abbreviated).year().locale(locale)))
+        }
+        return parts.joined(separator: " · ")
     }
 }
 

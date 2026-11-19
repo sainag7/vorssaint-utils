@@ -3,6 +3,19 @@
 
 import Foundation
 
+/// How monitor readouts show fan speed. The key is spelled out here because
+/// the protected fan helper compiles this file without `DefaultsKey`.
+enum FanSpeedUnit: String, CaseIterable, Sendable {
+    case rpm
+    case percent
+
+    static let defaultsKey = "fanSpeedUnit"
+
+    static var current: FanSpeedUnit {
+        UserDefaults.standard.string(forKey: defaultsKey).flatMap(FanSpeedUnit.init) ?? .percent
+    }
+}
+
 struct FanControlFanReading: Codable, Equatable, Identifiable, Sendable {
     let index: Int
     let actualRPM: Double
@@ -392,6 +405,92 @@ enum FanControlPolicy {
     static func menuBarValue(for speeds: [Double]) -> String? {
         guard !speeds.isEmpty, speeds.allSatisfy(validReading) else { return nil }
         return speeds.map { String(Int($0.rounded())) }.joined(separator: "/")
+    }
+
+    /// Fan speed as a share of the fan's reported maximum, the way Stats
+    /// shows it. Nil when either value is unusable.
+    static func percent(actual: Double, maximum: Double) -> Int? {
+        guard validReading(actual), validReading(maximum), maximum > 0 else { return nil }
+        return min(100, Int((actual / maximum * 100).rounded()))
+    }
+
+    /// A cooling level runs from the fan's minimum (0) to its maximum (100);
+    /// the readouts show speed as a share of the maximum. These convert
+    /// between the two so the slider and the readout speak the same units.
+    static func percentOfMaximum(level: Int, minimum: Double, maximum: Double) -> Int? {
+        guard let target = coolingTargetRPM(minimum: minimum, maximum: maximum, level: level) else { return nil }
+        return percent(actual: target, maximum: maximum)
+    }
+
+    /// The lowest share of the maximum a controlled fan can be asked for:
+    /// its own minimum speed.
+    static func minimumPercent(minimum: Double, maximum: Double) -> Int? {
+        guard validBounds(minimum: minimum, maximum: maximum) else { return nil }
+        return Int((minimum / maximum * 100).rounded(.up))
+    }
+
+    /// The valid cooling level closest to a requested share of the maximum.
+    static func coolingLevel(forPercent percent: Double, minimum: Double, maximum: Double) -> Int? {
+        guard validBounds(minimum: minimum, maximum: maximum), percent.isFinite else { return nil }
+        let rpm = min(max(percent, 0), 100) / 100 * maximum
+        let raw = (rpm - minimum) / (maximum - minimum) * 100
+        let step = Double(coolingLevelStep)
+        let level = Int((min(max(raw, 0), 100) / step).rounded() * step)
+        return min(max(level, minimumCoolingLevel), maximumCoolingLevel)
+    }
+
+    /// Percentages only when every fan has a usable maximum; otherwise nil,
+    /// so callers keep showing RPM rather than a partial mix.
+    static func percents(for speeds: [Double], maximums: [Double]) -> [Int]? {
+        guard !speeds.isEmpty, speeds.count == maximums.count else { return nil }
+        let values = zip(speeds, maximums).compactMap { percent(actual: $0, maximum: $1) }
+        return values.count == speeds.count ? values : nil
+    }
+
+    /// Whether readouts should use percentages for this snapshot.
+    static func showsPercent(speeds: [Double], maximums: [Double],
+                             unit: FanSpeedUnit = .current) -> Bool {
+        unit == .percent && percents(for: speeds, maximums: maximums) != nil
+    }
+
+    /// Percent mode shows one number, the busiest fan, so the menu bar stays
+    /// compact; RPM mode keeps every fan's reading.
+    static func menuBarValue(for speeds: [Double], maximums: [Double],
+                             unit: FanSpeedUnit) -> String? {
+        if unit == .percent, let values = percents(for: speeds, maximums: maximums),
+           let highest = values.max() {
+            return "\(highest)%"
+        }
+        return menuBarValue(for: speeds)
+    }
+
+    /// The fan the headline readout describes: the highest percentage in
+    /// percent mode, else the highest RPM. Earliest index wins ties.
+    static func leadingFanIndex(speeds: [Double], maximums: [Double],
+                                unit: FanSpeedUnit) -> Int? {
+        guard !speeds.isEmpty else { return nil }
+        if unit == .percent, let values = percents(for: speeds, maximums: maximums) {
+            return values.indices.max { values[$0] < values[$1] || (values[$0] == values[$1] && $0 > $1) }
+        }
+        return speeds.indices.max { speeds[$0] < speeds[$1] || (speeds[$0] == speeds[$1] && $0 > $1) }
+    }
+
+    /// One fan's readout for the headline and Dynamic Island.
+    static func displayValue(rpm: Double, maximum: Double?, unit: FanSpeedUnit,
+                             rpmFormat: String) -> String {
+        if unit == .percent, let maximum, let value = percent(actual: rpm, maximum: maximum) {
+            return "\(value)%"
+        }
+        return String(format: rpmFormat, Int(rpm.rounded()))
+    }
+
+    /// Per-fan detail row: both units when the maximum is known, the chosen
+    /// unit first ("45% · 2400 RPM" or "2400 RPM · 45%").
+    static func detailValue(rpm: Double, maximum: Double?, unit: FanSpeedUnit,
+                            rpmFormat: String) -> String {
+        let rpmText = String(format: rpmFormat, Int(rpm.rounded()))
+        guard let maximum, let value = percent(actual: rpm, maximum: maximum) else { return rpmText }
+        return unit == .percent ? "\(value)% · \(rpmText)" : "\(rpmText) · \(value)%"
     }
 
     static func menuBarWidthUnits(fanCount: Int) -> Int {

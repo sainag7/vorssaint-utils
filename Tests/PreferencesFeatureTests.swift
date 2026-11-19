@@ -16,6 +16,66 @@ enum PreferencesFeatureTests {
         // MARK: Registered defaults
 
         let registeredDefaults = Defaults.registeredDefaults
+        suite.expect(registeredDefaults[DefaultsKey.menuBarBatteryStyle] as? String == BatteryMenuBarStyle.inside.rawValue
+                && SettingsBackupSupport.exportKeys().contains(DefaultsKey.menuBarBatteryStyle)
+                && BatteryMenuBarStyle.sanitized("iconAndPercent") == .iconAndPercent
+                && BatteryMenuBarStyle.sanitized("bogus") == .inside
+                && BatteryMenuBarStyle.sanitized(nil) == .inside,
+               "the menu bar battery shows its percentage inside the icon unless set otherwise")
+        suite.expect(BatteryPowerSupport.fillFraction(percent: 50) == 0.5
+                && BatteryPowerSupport.fillFraction(percent: 140) == 1
+                && BatteryPowerSupport.fillFraction(percent: -3) == 0,
+               "the battery body fills to the charge, clamped to empty and full")
+        suite.expect(BatteryPowerSupport.fillLevel(percent: 100) == .normal
+                && BatteryPowerSupport.fillLevel(percent: 21) == .normal
+                && BatteryPowerSupport.fillLevel(percent: 20) == .low
+                && BatteryPowerSupport.fillLevel(percent: 11) == .low
+                && BatteryPowerSupport.fillLevel(percent: 10) == .critical
+                && BatteryPowerSupport.fillLevel(percent: 0) == .critical,
+               "the battery fill turns yellow at 20% and red at 10%")
+        do {
+            var calendar = Calendar(identifier: .gregorian)
+            calendar.timeZone = TimeZone(identifier: "UTC")!
+            func at(_ hour: Int, _ minute: Int = 0) -> Date {
+                calendar.date(from: DateComponents(year: 2026, month: 11, day: 10, hour: hour, minute: minute))!
+            }
+            var ledger = BatteryUsageLedger()
+            suite.expect(ledger.record(percent: 80, at: at(9), calendar: calendar)
+                         && ledger.usage(endingAt: at(9), calendar: calendar).allSatisfy { $0.percent == 0 },
+                         "the first battery reading only sets a starting point")
+            ledger.record(percent: 78.5, at: at(9, 20), calendar: calendar)
+            ledger.record(percent: 77, at: at(9, 50), calendar: calendar)
+            ledger.record(percent: 90, at: at(10, 10), calendar: calendar)
+            ledger.record(percent: 88, at: at(10, 40), calendar: calendar)
+            let hours = ledger.usage(endingAt: at(10, 45), calendar: calendar)
+            suite.expect(hours.count == 24 && hours.last?.percent == 2 && hours[22].percent == 3
+                         && hours.last?.start == at(10),
+                         "battery use adds each drop to its clock hour and ignores charging")
+            suite.expect(!ledger.record(percent: 120, at: at(11), calendar: calendar)
+                         && !ledger.record(percent: .nan, at: at(11), calendar: calendar),
+                         "impossible battery readings are ignored")
+            let later = calendar.date(byAdding: .hour, value: 60, to: at(10))!
+            ledger.record(percent: 87, at: later, calendar: calendar)
+            suite.expect(ledger.hours.keys.allSatisfy { $0 >= Int(at(10).timeIntervalSince1970) + 12 * 3600 },
+                         "battery use older than two days is dropped")
+            let data = try? JSONEncoder().encode(ledger)
+            suite.expect(data.flatMap { try? JSONDecoder().decode(BatteryUsageLedger.self, from: $0) } == ledger,
+                         "the hourly battery ledger survives a save and load")
+        }
+        suite.expect(registeredDefaults[DefaultsKey.menuBarMetricGap] as? Int == MenuBarSpacingSupport.automaticGap
+                && SettingsBackupSupport.exportKeys().contains(DefaultsKey.menuBarMetricGap),
+               "the menu bar metric gap starts automatic and travels in settings backups")
+        suite.expect(MenuBarSpacingSupport.sanitizedGap(nil) == nil
+                && MenuBarSpacingSupport.sanitizedGap(MenuBarSpacingSupport.automaticGap) == nil
+                && MenuBarSpacingSupport.sanitizedGap(0) == 0
+                && MenuBarSpacingSupport.sanitizedGap(6) == 6
+                && MenuBarSpacingSupport.sanitizedGap(400) == 16
+                && MenuBarSpacingSupport.sanitizedGap(-9) == 0,
+               "a stored metric gap is automatic, or clamped to 0...16 points")
+        suite.expect(MenuBarSpacingSupport.itemLength(titleWidth: 30.2, gap: 4) == 35
+                && MenuBarSpacingSupport.itemLength(titleWidth: 30, gap: 0) == 30
+                && MenuBarSpacingSupport.itemLength(titleWidth: -5, gap: 4) == 4,
+               "a separate metric item is its title width plus the gap")
         suite.expect(registeredDefaults[DefaultsKey.monitorMemoryMetric] as? String == "used",
                "monitor memory metric defaults to memory used")
         suite.expect(Defaults.sanitizedMonitorMemoryMetric("app") == "app",
@@ -387,5 +447,11 @@ enum PreferencesFeatureTests {
         suite.expect(SudoersSupport.clamshellRule(uid: uid_t.max)
                .range(of: #"^#[0-9]+ [A-Za-z0-9()=:,./ ]+$"#, options: .regularExpression) != nil,
                "the closed-lid sudoers rule never contains shell or sudoers metacharacters")
+        suite.expect(SudoersSupport.lowPowerRule(uid: 501)
+               == "#501 ALL=(root) NOPASSWD: /usr/bin/pmset -a lowpowermode 1, /usr/bin/pmset -a lowpowermode 0",
+               "the Low Power Mode sudoers rule grants only pmset lowpowermode to the uid")
+        suite.expect(SudoersSupport.lowPowerRule(uid: uid_t.max)
+               .range(of: #"^#[0-9]+ [A-Za-z0-9()=:,./ -]+$"#, options: .regularExpression) != nil,
+               "the Low Power Mode sudoers rule never contains shell or sudoers metacharacters")
     }
 }

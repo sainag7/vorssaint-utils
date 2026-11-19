@@ -2269,8 +2269,42 @@ enum NotchTests {
         suite.expect(!NotchSupport.modules(in: defaults).contains(.mixer)
                && !NotchSupport.controls(in: defaults).contains(.volume), "mixer availability gates its module and volume control")
         defaults.set(true, forKey: AppFeature.mixer.availabilityKey)
-        suite.expect(NotchControlItem.allCases.filter { $0.setupRequirement == .none } == [.panel],
+        suite.expect(NotchControlItem.allCases.filter { $0.setupRequirement == .none } == [.panel, .shortcut],
                      "every unavailable island control with a setup path has a navigation target")
+        suite.expect(NotchControlItem.defaultHidden.split(separator: ",").contains("shortcut"),
+                     "the Run Shortcut tile starts hidden until someone asks for it")
+        suite.expect(NotchShortcutTile.guessedSymbol(for: "FaceTime Nitya") == "video"
+                     && NotchShortcutTile.guessedSymbol(for: "Call Mom") == "phone"
+                     && NotchShortcutTile.guessedSymbol(for: "Flashlight") == "flashlight.on.fill"
+                     && NotchShortcutTile.guessedSymbol(for: "Turn On Office Room") == "lightbulb"
+                     && NotchShortcutTile.guessedSymbol(for: "Low Power Mode") == "battery.100"
+                     && NotchShortcutTile.guessedSymbol(for: "Show Screenshots") == "photo"
+                     && NotchShortcutTile.guessedSymbol(for: "Something else") == NotchShortcutTile.fallbackSymbol,
+                     "the Run Shortcut tile guesses its icon from the shortcut's name")
+        suite.expect(NotchShortcutTile.symbol(chosen: "heart", name: "FaceTime") == "heart"
+                     && NotchShortcutTile.symbol(chosen: "", name: "FaceTime") == "video"
+                     && NotchShortcutTile.symbol(chosen: "not.a.choice", name: "FaceTime") == "video",
+                     "a chosen icon wins and an unknown one falls back to the guess")
+        suite.expect(NotchShortcutTile.names(fromList: "FaceTime Nitya\n\n  Flashlight \nFaceTime Nitya\n") == ["FaceTime Nitya", "Flashlight"],
+                     "the shortcuts list drops blank lines and repeats")
+        suite.expect(NotchShortcutTile.choices(library: ["A", "B"], current: "Gone") == ["Gone", "A", "B"]
+                     && NotchShortcutTile.choices(library: ["A", "B"], current: "B") == ["A", "B"]
+                     && NotchShortcutTile.choices(library: ["A"], current: "") == ["A"],
+                     "a renamed or deleted choice stays visible in the picker")
+        do {
+            let suiteName = "com.vorssaint.tests.notch-run-shortcut-migration"
+            let migrated = UserDefaults(suiteName: suiteName)!
+            migrated.removePersistentDomain(forName: suiteName)
+            defer { migrated.removePersistentDomain(forName: suiteName) }
+            migrated.set("microphone,screenshot", forKey: DefaultsKey.notchHiddenControls)
+            Defaults.hideRunShortcutControlOnce(in: migrated)
+            let once = migrated.string(forKey: DefaultsKey.notchHiddenControls)
+            migrated.set("microphone", forKey: DefaultsKey.notchHiddenControls)
+            Defaults.hideRunShortcutControlOnce(in: migrated)
+            suite.expect(once == "microphone,screenshot,shortcut"
+                         && migrated.string(forKey: DefaultsKey.notchHiddenControls) == "microphone",
+                         "a saved controls list hides the new Run Shortcut tile once, then leaves it to the user")
+        }
         suite.expect(NotchControlItem.allCases.filter(\.isLevel) == [.volume, .brightness, .keyboardLight]
                      && !NotchQuickAction.optionalActions.contains(.control(.keyboardLight)),
                      "levels draw as sliders in the card row and are not offered as shortcuts")
@@ -2321,7 +2355,7 @@ enum NotchTests {
                "shortcut ordering tolerates duplicate and obsolete identifiers")
         suite.expect(!controls.contains(.volume) && !controls.contains(.screenshot), "individual controls can be hidden")
         defaults.set("", forKey: DefaultsKey.notchHiddenControls)
-        suite.expect(NotchSupport.controls(in: defaults).last == .scratchpad
+        suite.expect(NotchSupport.controls(in: defaults).contains(.scratchpad)
                && NotchQuickAction(id: NotchQuickAction.control(.scratchpad).id) == .control(.scratchpad)
                && NotchQuickAction.optionalActions.contains(.control(.scratchpad)),
                "the scratchpad shortcut can be shown among the controls and placed as a floating button")

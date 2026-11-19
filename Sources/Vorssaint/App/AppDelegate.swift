@@ -134,6 +134,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         }
         statusController.onMetricClick = { [weak self] metric, button in
             self?.captureStatusClick()
+            if metric == .battery, self?.showPowerPage(anchoredTo: button) == true { return }
             self?.showMetricPanel(for: metric, anchoredTo: button)
         }
         statusController.onClipboardPreviewClick = {
@@ -172,6 +173,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         }
         FanControlService.recoverIfNeeded()
         SpacesOrderHold.recoverIfNeeded()
+        // The battery details' hourly chart needs readings while no panel is
+        // open; a laptop-only, once-a-minute registry read.
+        BatteryUsageRecorder.shared.start()
         // One binding per feature: only available features are touched, so a
         // feature switched off in the hub never even instantiates here.
         FeatureRuntime.shared.syncAtLaunch()
@@ -509,13 +513,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
             NotchService.shared.openAppPanel(toggle: true); return
         }
         if !popoverIsOpen {
-            MenuPanelFocus.shared.showNormalPanel()
+            // While Keep Awake is on the icon is its mark, so a click opens
+            // its page rather than whichever page was open last.
+            if KeepAwakeManager.shared.isActive, AppFeature.keepAwake.isAvailable {
+                MenuPanelFocus.shared.focus(.keepAwake)
+            } else {
+                MenuPanelFocus.shared.showNormalPanel()
+            }
         }
         togglePopover()
     }
 
     func isOverStatusItem(_ point: NSPoint) -> Bool {
         statusController?.containsStatusItem(at: point) == true
+    }
+
+    /// The battery opens the panel's Power page (charge, energy use, adapter,
+    /// battery flow and health) instead of the battery details; a second
+    /// click closes it. False when the click belongs to the island instead.
+    private func showPowerPage(anchoredTo button: NSStatusBarButton) -> Bool {
+        if NotchSupport.routesAppPanel(), NotchService.shared.acceptsSystemFeedback,
+           NotchSupport.modules().contains(.system) { return false }
+        let showingPower = MenuPanelFocus.shared.request?.target == .section(PanelSectionID.power)
+            && MenuPanelFocus.shared.activeMetric == nil
+        if popoverIsOpen {
+            metricAnchorSwitchSerial &+= 1
+            if showingPower { closePopover(reason: .statusItem) } else { MenuPanelFocus.shared.focus(PanelSectionID.power) }
+            return true
+        }
+        MenuPanelFocus.shared.focus(PanelSectionID.power)
+        showPopover(anchor: button)
+        return true
     }
 
     private func showMetricPanel(for metric: MenuBarMetric, anchoredTo button: NSStatusBarButton) {

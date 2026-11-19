@@ -775,6 +775,19 @@ enum MixerRoutingSupport {
         return nil
     }
 
+    /// System daemons that play a call app's audio on its behalf, mapped to
+    /// that app's bundle id. FaceTime calls are rendered by `avconferenced`
+    /// (a launchd daemon, so no regular app owns it); without this the
+    /// FaceTime row only reached the app's own ringtones and UI sounds.
+    static func callAudioHostBundle(processName: String?, processBundleID: String?) -> String? {
+        let name = processName?.trimmingCharacters(in: .whitespaces).lowercased() ?? ""
+        let bundle = processBundleID?.lowercased() ?? ""
+        if name == "avconferenced" || bundle == "com.apple.avconferenced" {
+            return "com.apple.FaceTime"
+        }
+        return nil
+    }
+
     static func needsPersistentFinderRow(showFinder: Bool, hasFinderRow: Bool) -> Bool {
         showFinder && !hasFinderRow
     }
