@@ -228,6 +228,17 @@ enum NotchLevelTrackingTests {
         expectEdit(0.75, "click after re-enabling")
 
         guard vertical else { return }
+        // Wheel adjustment is opt-in; these checks cover the opted-in path.
+        let defaults = UserDefaults.standard
+        let savedScrollPreference = defaults.object(forKey: DefaultsKey.sliderScrollAdjustsLevel)
+        defaults.set(true, forKey: DefaultsKey.sliderScrollAdjustsLevel)
+        defer {
+            if let savedScrollPreference {
+                defaults.set(savedScrollPreference, forKey: DefaultsKey.sliderScrollAdjustsLevel)
+            } else {
+                defaults.removeObject(forKey: DefaultsKey.sliderScrollAdjustsLevel)
+            }
+        }
         // The mixer binds these ranges to output/microphone gain and app
         // volume. Here every write by the production coordinator stays in State.
         var time: CGEventTimestamp = 10_000_000_000

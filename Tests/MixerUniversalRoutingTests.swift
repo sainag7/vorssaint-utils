@@ -414,6 +414,7 @@ extension MixerUniversalRoutingContract.Mixer {
             default: return nil
             }
         }
+        static func runningApplications(withBundleIdentifier bundle: String) -> [NSRunningApplication] { [] }
     }
 
     enum ResponsibleProcess {
