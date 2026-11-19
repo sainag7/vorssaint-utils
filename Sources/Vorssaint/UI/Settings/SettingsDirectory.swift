@@ -25,7 +25,7 @@ struct SettingsSearchState: Equatable {
             ?? WindowSwitchMinimizedPlacement.normal.rawValue) != WindowSwitchMinimizedPlacement.normal.rawValue
         switches = Set([
             DefaultsKey.clamshellPreferred, DefaultsKey.keepAwakeMouseJiggleEnabled, DefaultsKey.brightnessControlEnabled,
-            DefaultsKey.displayVolumeEnabled,
+            DefaultsKey.displayVolumeEnabled, DefaultsKey.displayVolumeKeysEnabled,
             DefaultsKey.bluetoothSleepEnabled, DefaultsKey.dockPreviewEnabled, DefaultsKey.switcherSimpleMode,
             DefaultsKey.switcherIconRowMode, DefaultsKey.notchLyricsEnabled, DefaultsKey.notchShelf,
             DefaultsKey.notchClipboardWindow, DefaultsKey.notchLowBatteryTint, DefaultsKey.notchLowBatteryEarly,
@@ -103,6 +103,9 @@ enum SettingsDirectory {
                             }
                             return feature.hubTitle(s, hub: hub, language: language)
                         }
+                    if pageItem.page == .screenshot {
+                        rows = SettingsSidebarSupport.screenshotRows(rows, language: language)
+                    }
                     if pageItem.page == .general {
                         rows.insert(SettingsSidebarItem(
                             id: .setting(.panelConfiguration),
@@ -204,6 +207,7 @@ enum SettingsDirectory {
             title: s.menuBarSection, icon: "menubar.rectangle",
             keywords: [s.showMenuBarIcon, FeatureStrings.generalSettings(language).menuBarIconTitle,
                        FeatureStrings.generalSettings(language).iconMissingTitle, "SF Symbols"]))
+        items.append(SettingsSearchSupport.scrollingScreenshotItem(language: language))
         let alerts = FeatureStrings.monitorAlerts(language)
         items.append(SettingsSearchItem(
             id: .setting(.monitorAlerts), destination: FeatureSettingsDestination(.monitor, sectionAnchor: .monitorAlerts),
@@ -363,6 +367,9 @@ enum SettingsDirectory {
                                               feature: .brightness, when: state.on(DefaultsKey.brightnessControlEnabled)),
                                         .init([brightness.volumeKeysToggle], feature: .brightness,
                                               when: state.on(DefaultsKey.brightnessControlEnabled) && state.on(DefaultsKey.displayVolumeEnabled)),
+                                        .init([brightness.speakersStep, brightness.speakersMinimum, brightness.speakersMaximum],
+                                              feature: .brightness, when: state.on(DefaultsKey.brightnessControlEnabled)
+                                                && state.on(DefaultsKey.displayVolumeEnabled) && state.on(DefaultsKey.displayVolumeKeysEnabled)),
                                         .init([brightness.osdToggle], feature: .brightness,
                                               when: state.hardware.brightnessOSD && state.on(DefaultsKey.brightnessControlEnabled)),
                                         .init([bluetooth.enable], feature: .bluetoothSleep, when: state.hardware.bluetoothSleep),
@@ -401,6 +408,7 @@ enum SettingsDirectory {
                                                               s.focusFollowsMouseWaitForStop]),
                                         (.smoothScroll, [s.smoothScrollName]),
                                         (.linearScroll, [s.linearScrollName, s.linearScrollLinesLabel]),
+                                        (.scrollSpeed, [s.scrollSpeedName, s.scrollSpeedMultiplierLabel]),
                                         (.mouseAcceleration, [s.mouseAccelerationName]),
                                         (.mouseNavigation, [s.mouseNavigationEnable, s.mouseNavigationSection]),
                                         (.mouseButtonShortcuts,
@@ -535,7 +543,8 @@ enum SettingsDirectory {
                                                  FeatureStrings.whatsAppDownloads(language).automatic,
                                                  FeatureStrings.whatsAppDownloads(language).fileTypes]),
                 SettingsDirectoryItem(page: .homebrew, title: s.homebrewName, icon: "shippingbox"),
-                SettingsDirectoryItem(page: .uninstaller, title: s.uninstallerName, icon: "trash"),
+                SettingsDirectoryItem(page: .uninstaller, title: s.uninstallerName, icon: "trash",
+                                      keywords: [s.uninstallerCommandBarToggle, s.uninstallerWatchTrashToggle]),
                 SettingsDirectoryItem(page: .killProcess,
                                       title: FeatureStrings.killProcess(language).pageTitle,
                                       icon: "xmark.octagon",

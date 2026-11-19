@@ -29,6 +29,7 @@ enum SettingsSectionAnchor: String, CaseIterable, Hashable {
     case focusFollowsMouse
     case smoothScroll
     case linearScroll
+    case scrollSpeed
     case mouseAcceleration
     case mouseNavigation
     case mouseButtonShortcuts
@@ -46,6 +47,7 @@ enum SettingsSectionAnchor: String, CaseIterable, Hashable {
     case quickToggles
     case quitApps
     case screenshot
+    case screenshotScrolling
     case screenRecorder
     case colorPicker
     case screenOCR
@@ -66,7 +68,7 @@ enum SettingsSectionAnchor: String, CaseIterable, Hashable {
              .soundOutputSwitcher:
             return .general
         case .keepAwake, .brightness, .extraBrightness, .bluetoothSleep: return .energy
-        case .scrollDirection, .scrollZoom, .focusFollowsMouse, .smoothScroll, .linearScroll, .mouseAcceleration, .mouseNavigation, .mouseButtonShortcuts,
+        case .scrollDirection, .scrollZoom, .focusFollowsMouse, .smoothScroll, .linearScroll, .scrollSpeed, .mouseAcceleration, .mouseNavigation, .mouseButtonShortcuts,
              .middleClick, .mouseClickDebounce:
             return .mouse
         case .switcher: return .switcher
@@ -76,7 +78,7 @@ enum SettingsSectionAnchor: String, CaseIterable, Hashable {
         case .quickLauncher, .quickToggles, .quitApps, .micMute, .cameraPreview, .wallpaper, .scratchpad,
              .cleaningMode:
             return .quickTools
-        case .screenshot, .screenRecorder, .colorPicker, .screenOCR:
+        case .screenshot, .screenshotScrolling, .screenRecorder, .colorPicker, .screenOCR:
             return .screenshot
         case .keyboardBrightnessShortcuts: return .shortcuts
         case .fanControl, .monitorAlerts: return .monitor
@@ -256,7 +258,7 @@ final class SettingsRouter: ObservableObject {
     }
 
     private static func anchorSelectsTool(on page: SettingsPage) -> Bool {
-        page == .general || page == .energy
+        page == .general || page == .energy || page == .screenshot
     }
 
     func goBack(isPageVisible: (SettingsPage) -> Bool = { _ in true }) {
@@ -342,6 +344,8 @@ extension AppFeature {
             return FeatureSettingsDestination(.mouse, sectionAnchor: .smoothScroll)
         case .linearScroll:
             return FeatureSettingsDestination(.mouse, sectionAnchor: .linearScroll)
+        case .scrollSpeed:
+            return FeatureSettingsDestination(.mouse, sectionAnchor: .scrollSpeed)
         case .mouseAcceleration:
             return FeatureSettingsDestination(.mouse, sectionAnchor: .mouseAcceleration)
         case .mouseNavigation:
@@ -454,7 +458,7 @@ enum FeatureVisibilitySupport {
         switch page {
         case .energy: return [.keepAwake, .brightness, .extraBrightness, .bluetoothSleep]
         case .monitor: return monitorFeatures
-        case .mouse: return [.scrollInverter, .scrollHorizontal, .scrollZoom, .focusFollowsMouse, .smoothScroll, .linearScroll, .mouseAcceleration, .mouseNavigation, .mouseButtonShortcuts,
+        case .mouse: return [.scrollInverter, .scrollHorizontal, .scrollZoom, .focusFollowsMouse, .smoothScroll, .linearScroll, .scrollSpeed, .mouseAcceleration, .mouseNavigation, .mouseButtonShortcuts,
                              .middleClick, .mouseClickDebounce]
         case .switcher: return [.switcher]
         case .dock: return [.dockPreview, .dockClick, .spacesOrder]

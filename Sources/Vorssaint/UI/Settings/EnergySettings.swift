@@ -380,8 +380,11 @@ struct EnergySettings: View {
                                         BrightnessService.shared.syncWithPreferences()
                                     }
                             }
+                            if displayVolumeKeys {
+                                MonitorVolumeKeyControls(strings: strings)
+                            }
                         }
-                        if brightnessKeysEnabled || brightnessOSDEnabled || displayVolumeKeys
+                        if brightnessKeysEnabled || brightnessOSDEnabled || (displayVolume && displayVolumeKeys)
                             || BrightnessSupport.KeyStep.sanitized(brightnessKeyStep) != .standard,
                            !permissions.accessibility {
                             PermissionRow(kind: .accessibility)

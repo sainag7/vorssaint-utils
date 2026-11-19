@@ -134,6 +134,17 @@ enum SettingsSearchSupport {
         }
     }
 
+    static func scrollingScreenshotItem(language: AppLanguage) -> SettingsSearchItem {
+        let strings = FeatureStrings.screenshot(language)
+        return SettingsSearchItem(
+            id: .setting(.screenshotScrolling),
+            destination: ScreenCaptureTool.scrolling.settingsDestination,
+            title: strings.scrollingCaptureTitle,
+            icon: ScreenCaptureTool.scrolling.systemImageName,
+            keywords: [strings.scrollingAutoScrollToggle],
+            feature: .screenshot)
+    }
+
     static func keyboardBrightnessShortcutItem(language: AppLanguage) -> SettingsSearchItem {
         let brightness = FeatureStrings.brightness(language)
         return SettingsSearchItem(

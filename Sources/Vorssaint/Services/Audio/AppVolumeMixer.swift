@@ -6,6 +6,7 @@ import AppKit
 import AudioToolbox
 import Combine
 import CoreAudio
+import CoreAudioTapCompat
 import Darwin
 
 struct MixerOutputDevice: Identifiable, Equatable {
@@ -14,6 +15,7 @@ struct MixerOutputDevice: Identifiable, Equatable {
     let name: String
     let isDefault: Bool
     let isHeadphones: Bool
+    let isAirPlay: Bool
     let canBeDefaultOutput: Bool
     let canBeDefaultSystemOutput: Bool
     let priorityTier: MixerRoutingSupport.PriorityTier
@@ -1769,7 +1771,6 @@ final class AppVolumeMixer: ObservableObject {
                                    lowered: lowered)
         }
 
-        let ownPid = request.ownPid
         let saved = request.savedVolumes
         let savedOutputs = request.savedOutputs
         let showFinder = request.showFinder
@@ -1780,86 +1781,9 @@ final class AppVolumeMixer: ObservableObject {
                                                subDeviceUIDs: subDeviceUIDs(of:),
                                                deviceForUID: deviceID(forUID:))
         } ?? [] : Set<AudioObjectID>()
-        var groups: [pid_t: [AudioObjectID]] = [:]
-        var playing: Set<pid_t> = []
-        var bypassed: Set<pid_t> = []
-        var bundleHints: [pid_t: String] = [:]
         let processObjects = audioProcessObjects()
-        for object in processObjects {
-            var pid: pid_t = -1
-            guard Self.read(object, kAudioProcessPropertyPID, &pid), pid > 0, pid != ownPid else { continue }
-
-            // Show every regular app that holds an audio connection, not only
-            // the ones making sound this instant, so apps are adjustable before
-            // they play and stay put between sounds.
-            guard let app = ResponsibleProcess.regularAppOwner(of: pid)
-                    ?? Self.callAudioHostApp(for: object, pid: pid) else { continue }
-            let owner = app.processIdentifier
-            let name = ResponsibleProcess.displayName(pid: owner, fallback: app.localizedName ?? "pid \(owner)")
-            // Bypassed apps still get a row — hiding them read
-            // as a bug (issue #177) — but they are never tapped: volume
-            // pinned at unity, no saved routing, so appNeedsEngine is always
-            // false for them.
-            if MixerRoutingSupport.bypassesProcessTap(bundleIdentifier: app.bundleIdentifier,
-                                                      name: name,
-                                                      allowCallAppVolume: request.callAppVolumeEnabled.contains(
-                                                        app.bundleIdentifier?.lowercased() ?? "")) {
-                bypassed.insert(owner)
-            }
-
-            var running: UInt32 = 0
-            _ = Self.read(object, kAudioProcessPropertyIsRunningOutput, &running)
-            if running != 0 { playing.insert(owner) }
-
-            groups[owner, default: []].append(object)
-            if bundleHints[owner] == nil {
-                // The audio object knows the bundle id of its own process,
-                // which is the app itself whenever it plays its own sound.
-                // For a helper that plays on an app's behalf the owner found
-                // above is the app, and its bundle id is the one that counts.
-                bundleHints[owner] = app.bundleIdentifier
-                    ?? (pid == owner ? Self.processBundleIdentifier(of: object) : nil)
-            }
-        }
-
-        var next: [MixerApp] = []
-        for (owner, objects) in groups {
-            let fallbackName = "pid \(owner)"
-            let name = ResponsibleProcess.displayName(pid: owner, fallback: fallbackName)
-            // The pid fallback is not a name to save under: pids recycle.
-            let identity = MixerRoutingSupport.rowIdentity(bundleIdentifier: bundleHints[owner],
-                                                           ownerPid: owner,
-                                                           displayName: name == fallbackName ? nil : name)
-            // Hidden means no row, and with no row the engine reconciliation
-            // below tears its tap down too: an app taken off the list always
-            // plays untouched, never silently attenuated (issue #300).
-            if MixerRoutingSupport.isHiddenFromMixer(persistenceID: identity.persistenceID,
-                                                     hiddenIDs: request.hiddenRowIDs) { continue }
-            let isBypassed = bypassed.contains(owner)
-            let route = isBypassed ? nil : storedRoute(for: identity,
-                                                       saved: savedOutputs,
-                                                       session: request.sessionRoutes)
-            next.append(MixerApp(id: identity.rowID,
-                                 persistenceID: identity.persistenceID,
-                                 ownerPid: owner,
-                                 name: name,
-                                 audioObjects: objects.sorted(),
-                                 isPlaying: playing.contains(owner),
-                                 isBypassed: isBypassed,
-                                 supportsVolumeOverride: MixerRoutingSupport.needsScreenSharingProtection(
-                                    bundleIdentifier: bundleHints[owner]),
-                                 selectedOutputDeviceUID: route,
-                                 effectiveOutputDeviceUID: isBypassed ? nil : MixerRoutingSupport.effectiveDeviceUID(
-                                    selectedUID: route,
-                                    availableUIDs: availableUIDs,
-                                    defaultUID: defaultUID),
-                                 outputDeviceUnavailable: isBypassed ? false : MixerRoutingSupport.selectedDeviceUnavailable(
-                                    selectedUID: route,
-                                    availableUIDs: availableUIDs),
-                                 volume: isBypassed ? 1 : (storedVolume(for: identity,
-                                                                       saved: saved,
-                                                                       session: request.sessionVolumes) ?? 1)))
-        }
+        var next = processRows(for: processObjects, request: request,
+                               availableUIDs: availableUIDs, defaultUID: defaultUID)
         if MixerRoutingSupport.needsPersistentFinderRow(
             showFinder: showFinder,
             hasFinderRow: next.contains { $0.id == MixerRoutingSupport.finderBundleIdentifier }
@@ -1903,6 +1827,95 @@ final class AppVolumeMixer: ObservableObject {
                                apps: next,
                                processObjects: processObjects,
                                lowered: lowered)
+    }
+
+    private static func processRows(for processObjects: [AudioObjectID], request: RefreshRequest,
+                                    availableUIDs: Set<String>, defaultUID: String?) -> [MixerApp] {
+        var groups: [pid_t: [AudioObjectID]] = [:]
+        var playing: Set<pid_t> = []
+        var bypassed: Set<pid_t> = []
+        var bundleHints: [pid_t: String] = [:]
+        for object in processObjects {
+            var pid: pid_t = -1
+            guard Self.read(object, kAudioProcessPropertyPID, &pid), pid > 0, pid != request.ownPid else { continue }
+
+            // Show every regular app that holds an audio connection, not only
+            // the ones making sound this instant, so apps are adjustable before
+            // they play and stay put between sounds.
+            // Keyed by the owner's real pid: the app's own processIdentifier
+            // is -1 for some apps and would merge them (issue #3929).
+            // A system daemon playing a call app's audio (FaceTime's
+            // avconferenced) joins that app's row.
+            guard let owner = ResponsibleProcess.regularAppOwnerPid(of: pid)
+                    ?? Self.callAudioHostApp(for: object, pid: pid)?.processIdentifier,
+                  owner > 0,
+                  let app = NSRunningApplication(processIdentifier: owner) else { continue }
+            let name = ResponsibleProcess.displayName(pid: owner, fallback: app.localizedName ?? "pid \(owner)")
+            // Bypassed apps still get a row — hiding them read
+            // as a bug (issue #177) — but they are never tapped: volume
+            // pinned at unity, no saved routing, so appNeedsEngine is always
+            // false for them.
+            if MixerRoutingSupport.bypassesProcessTap(bundleIdentifier: app.bundleIdentifier,
+                                                      name: name,
+                                                      allowCallAppVolume: request.callAppVolumeEnabled.contains(
+                                                        app.bundleIdentifier?.lowercased() ?? "")) {
+                bypassed.insert(owner)
+            }
+
+            var running: UInt32 = 0
+            _ = Self.read(object, kAudioProcessPropertyIsRunningOutput, &running)
+            if running != 0 { playing.insert(owner) }
+
+            groups[owner, default: []].append(object)
+            if bundleHints[owner] == nil {
+                // The audio object knows the bundle id of its own process,
+                // which is the app itself whenever it plays its own sound.
+                // For a helper that plays on an app's behalf the owner found
+                // above is the app, and its bundle id is the one that counts.
+                bundleHints[owner] = app.bundleIdentifier
+                    ?? (pid == owner ? Self.processBundleIdentifier(of: object) : nil)
+            }
+        }
+
+        var next: [MixerApp] = []
+        for (owner, objects) in groups {
+            let fallbackName = "pid \(owner)"
+            let name = ResponsibleProcess.displayName(pid: owner, fallback: fallbackName)
+            // The pid fallback is not a name to save under: pids recycle.
+            let identity = MixerRoutingSupport.rowIdentity(bundleIdentifier: bundleHints[owner],
+                                                           ownerPid: owner,
+                                                           displayName: name == fallbackName ? nil : name)
+            // Hidden means no row, and with no row the engine reconciliation
+            // below tears its tap down too: an app taken off the list always
+            // plays untouched, never silently attenuated (issue #300).
+            if MixerRoutingSupport.isHiddenFromMixer(persistenceID: identity.persistenceID,
+                                                     hiddenIDs: request.hiddenRowIDs) { continue }
+            let isBypassed = bypassed.contains(owner)
+            let route = isBypassed ? nil : storedRoute(for: identity,
+                                                       saved: request.savedOutputs,
+                                                       session: request.sessionRoutes)
+            next.append(MixerApp(id: identity.rowID,
+                                 persistenceID: identity.persistenceID,
+                                 ownerPid: owner,
+                                 name: name,
+                                 audioObjects: objects.sorted(),
+                                 isPlaying: playing.contains(owner),
+                                 isBypassed: isBypassed,
+                                 supportsVolumeOverride: MixerRoutingSupport.needsScreenSharingProtection(
+                                    bundleIdentifier: bundleHints[owner]),
+                                 selectedOutputDeviceUID: route,
+                                 effectiveOutputDeviceUID: isBypassed ? nil : MixerRoutingSupport.effectiveDeviceUID(
+                                    selectedUID: route,
+                                    availableUIDs: availableUIDs,
+                                    defaultUID: defaultUID),
+                                 outputDeviceUnavailable: isBypassed ? false : MixerRoutingSupport.selectedDeviceUnavailable(
+                                    selectedUID: route,
+                                    availableUIDs: availableUIDs),
+                                 volume: isBypassed ? 1 : (storedVolume(for: identity,
+                                                                       saved: request.savedVolumes,
+                                                                       session: request.sessionVolumes) ?? 1)))
+        }
+        return next
     }
 
     /// Runs in the HAL snapshot after rows with the same identity have been
@@ -2577,6 +2590,7 @@ final class AppVolumeMixer: ObservableObject {
                                                 uid: uid,
                                                 dataSourceName: dataSourceName,
                                                 terminalTypes: terminalTypes),
+                                             isAirPlay: transportType == kAudioDeviceTransportTypeAirPlay,
                                              canBeDefaultOutput: canBeDefaultOutput,
                                              canBeDefaultSystemOutput: canBeDefaultSystemOutput,
                                              priorityTier: MixerRoutingSupport.PriorityTier(
@@ -2600,6 +2614,7 @@ final class AppVolumeMixer: ObservableObject {
                                              name: airPlayName,
                                              isDefault: false,
                                              isHeadphones: false,
+                                             isAirPlay: true,
                                              canBeDefaultOutput: false,
                                              canBeDefaultSystemOutput: false,
                                              priorityTier: .hardware,
@@ -3293,7 +3308,7 @@ private final class MixerTapConfiguration {
         let enqueue = lock.withLock {
             guard !stopped, !requiresRebuild else { return false }
             if suspend { rendering.value = 0 }
-            immediatePending = immediatePending || immediately
+            immediatePending = immediatePending || immediately || suspend
             guard !pending else { return false }
             pending = true
             return true
@@ -3315,9 +3330,9 @@ private final class MixerTapConfiguration {
                 if !unchanged {
                     rendering.value = 0
                     invalidated.value = 1
-                } else if !stopped, !pending, !requiresRebuild {
-                    // A notification arriving during a read owns another
-                    // pass and must not be cleared by this older result.
+                } else if !stopped, !immediatePending, !requiresRebuild {
+                    // A new format notification needs its own validation.
+                    // A periodic poll may skip its read and cannot resume audio for us.
                     rendering.value = 1
                 }
                 return notify
@@ -3447,7 +3462,6 @@ private final class TapGainEngine: GainEngine {
 
         guard let capture = Self.createTap(objects: objects, outputDeviceUID: outputDeviceUID) else { return nil }
         tapID = capture.id
-        let description = capture.description
         // Started before the aggregate, so its first read runs while the
         // aggregate is built. Every failure from here on calls stop().
         let compensation = compensationBox
@@ -3462,7 +3476,7 @@ private final class TapGainEngine: GainEngine {
             kAudioAggregateDeviceMainSubDeviceKey: outputDeviceUID,
             kAudioAggregateDeviceSubDeviceListKey: [[kAudioSubDeviceUIDKey: outputDeviceUID]],
             kAudioAggregateDeviceTapListKey: [[
-                kAudioSubTapUIDKey: description.uuid.uuidString,
+                kAudioSubTapUIDKey: capture.uid,
                 kAudioSubTapDriftCompensationKey: true,
             ]],
             kAudioAggregateDeviceTapAutoStartKey: true,
@@ -3597,27 +3611,25 @@ private final class TapGainEngine: GainEngine {
 
     private struct Capture {
         let id: AudioObjectID
-        let description: CATapDescription
+        let uid: String
         let format: MixerTapFormat
         let source: MixerTapConfiguration.Source?
     }
 
     private static func createTap(objects: [AudioObjectID], outputDeviceUID: String) -> Capture? {
         let source = deviceStreamSource(objects: objects, outputDeviceUID: outputDeviceUID)
-        if let source,
-           let capture = createTap(CATapDescription(processes: objects, deviceUID: outputDeviceUID, stream: 0),
-                                   source: source) {
+        if let source, let capture = createTap(objects: objects, deviceUID: outputDeviceUID, source: source) {
             return capture
         }
-        return createTap(CATapDescription(stereoMixdownOfProcesses: objects), source: nil)
+        return createTap(objects: objects, deviceUID: nil, source: nil)
     }
 
-    private static func createTap(_ description: CATapDescription,
+    private static func createTap(objects: [AudioObjectID], deviceUID: String?,
                                   source: MixerTapConfiguration.Source?) -> Capture? {
-        description.muteBehavior = .mutedWhenTapped
-        description.isPrivate = true
         var tap = AudioObjectID(0)
-        guard AudioHardwareCreateProcessTap(description, &tap) == noErr, tap != 0 else { return nil }
+        guard let uuid = createPrivateAudioTap(deviceUID == nil ? .stereoMixdown : .deviceStream,
+                                               processes: objects as [NSNumber], deviceUID: deviceUID,
+                                               name: nil, muteBehavior: .mutedWhenTapped, id: &tap) else { return nil }
         var asbd = AudioStreamBasicDescription()
         guard AppVolumeMixer.read(tap, kAudioTapPropertyFormat, &asbd),
               let format = MixerTapFormat(asbd),
@@ -3625,7 +3637,7 @@ private final class TapGainEngine: GainEngine {
             AudioHardwareDestroyProcessTap(tap)
             return nil
         }
-        return Capture(id: tap, description: description, format: format, source: source)
+        return Capture(id: tap, uid: uuid.uuidString, format: format, source: source)
     }
 
     private static func deviceStreamSource(objects: [AudioObjectID], outputDeviceUID: String)
@@ -3750,10 +3762,8 @@ private final class AirPlayGainEngine: GainEngine {
         self.gainBox = AtomicFloatBox(gain)
         self.compensationBox = AtomicFloatBox(1)
 
-        let description = CATapDescription(stereoMixdownOfProcesses: objects)
-        description.muteBehavior = .mutedWhenTapped
-        description.isPrivate = true
-        guard AudioHardwareCreateProcessTap(description, &tapID) == noErr, tapID != 0 else {
+        guard let uuid = createPrivateAudioTap(.stereoMixdown, processes: objects as [NSNumber], deviceUID: nil,
+                                               name: nil, muteBehavior: .mutedWhenTapped, id: &tapID) else {
             return nil
         }
         // Started before the aggregate, so its first read runs while the
@@ -3770,7 +3780,7 @@ private final class AirPlayGainEngine: GainEngine {
             kAudioAggregateDeviceMainSubDeviceKey: clockDeviceUID,
             kAudioAggregateDeviceSubDeviceListKey: [[kAudioSubDeviceUIDKey: clockDeviceUID]],
             kAudioAggregateDeviceTapListKey: [[
-                kAudioSubTapUIDKey: description.uuid.uuidString,
+                kAudioSubTapUIDKey: uuid.uuidString,
                 kAudioSubTapDriftCompensationKey: true,
             ]],
             kAudioAggregateDeviceTapAutoStartKey: true,

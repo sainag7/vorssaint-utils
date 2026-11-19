@@ -74,6 +74,47 @@ enum SettingsFeatureTests {
             suite.expect(sidebar.prefix(3).map(\.id) == [.feature(.scrollInverter), .feature(.scrollHorizontal), .feature(.scrollZoom)],
                          "the sidebar places Zoom beside scrolling in \(language.rawValue)")
         }
+        for (language, strings) in LocalizationTests.languages {
+            let captureRows = SettingsSidebarSupport.items(
+                page: .screenshot, title: "Screen capture", icon: "camera.viewfinder",
+                preferredFeatures: [.screenshot, .screenRecorder, .screenOCR, .colorPicker],
+                includePage: false, isAvailable: { _ in true }, featureTitle: { $0.rawValue })
+            let rows = SettingsSidebarSupport.screenshotRows(captureRows, language: language)
+            let destination = ScreenCaptureTool.scrolling.settingsDestination
+            suite.expect(rows.prefix(3).map(\.id)
+                    == [.feature(.screenshot), .setting(.screenshotScrolling), .feature(.screenRecorder)]
+                    && rows[1].title == FeatureStrings.screenshot(language).scrollingCaptureTitle
+                    && SettingsSidebarSupport.selection(for: destination, in: rows)
+                        == .setting(.screenshotScrolling),
+                         "scrolling screenshot has a localized sidebar row beside Screenshot")
+            let hiddenRows = SettingsSidebarSupport.items(
+                page: .screenshot, title: "Screen capture", icon: "camera.viewfinder",
+                preferredFeatures: [.screenRecorder], includePage: false,
+                isAvailable: { $0 == .screenRecorder }, featureTitle: { $0.rawValue })
+            suite.expect(!SettingsSidebarSupport.screenshotRows(hiddenRows, language: language)
+                .contains { $0.id == .setting(.screenshotScrolling) },
+                         "removing Screenshot also hides its scrolling sidebar row")
+            let search = SettingsSearchSupport.scrollingScreenshotItem(language: language)
+            suite.expect(search.destination == destination && search.destination.hasValidSectionAnchor
+                    && SettingsSearchSupport.matches(query: search.title, title: search.title)
+                    && SettingsSearchSupport.route(for: search, isAvailable: { _ in false })
+                        .targetFeature == .screenshot,
+                         "scrolling screenshot search opens its own tool or its installation page")
+            suite.expect(GlobalShortcutRole.captureRoles(in:
+                GlobalShortcutRole.availableRoles(isAvailable: { $0 == .screenshot }))
+                    .contains(.screenshotScrolling)
+                    && ScreenCaptureTool.scrolling.settingsTitle(strings, language: language) == search.title,
+                         "Keyboard shortcuts includes scrolling screenshot among installed capture tools")
+        }
+        let captureRouter = SettingsRouter()
+        captureRouter.request(ScreenCaptureTool.screenshot.settingsDestination)
+        captureRouter.request(ScreenCaptureTool.scrolling.settingsDestination)
+        captureRouter.goBack()
+        suite.expect(captureRouter.destination == ScreenCaptureTool.screenshot.settingsDestination,
+                     "Back returns from scrolling screenshot to Screenshot")
+        captureRouter.goForward()
+        suite.expect(captureRouter.destination == ScreenCaptureTool.scrolling.settingsDestination,
+                     "Forward restores scrolling screenshot and its sidebar selection")
         func directory(battery: Bool) -> [SettingsSearchItem] {
             SettingsDirectory.searchItems(.enUS, language: .enUS, state: state(battery: battery))
         }
@@ -108,6 +149,8 @@ enum SettingsFeatureTests {
         // off, and hidden once `hiddenWithout` goes too or the Mac has no battery.
         let visibility: [(label: String, page: SettingsPage, shownWithout: Set<AppFeature>,
                           hiddenWithout: Set<AppFeature>?, needsBattery: Bool)] = [
+            (FeatureStrings.screenshot(.enUS).scrollingAutoScrollToggle, .screenshot, [], [.screenshot], false),
+            (Strings.enUS.uninstallerWatchTrashToggle, .uninstaller, [], [.uninstaller], false),
             (music.enableLyrics, .notch, [.notchLyrics], nil, false),
             (music.enableQueue, .notch, [.notchQueue], nil, false),
             (music.online, .notch, [], [.notchLyrics], false),
@@ -225,6 +268,16 @@ enum SettingsFeatureTests {
                shown: false, without: [.keepAwake])
         suite.expect(pages(of: Strings.enUS.hotkeyToggle) == [.general],
                      "the Keep Awake switch in General does not lead to Shortcuts")
+        let speakers = FeatureStrings.brightness(.enUS)
+        defaults.set(true, forKey: DefaultsKey.brightnessControlEnabled)
+        defaults.set(true, forKey: DefaultsKey.displayVolumeEnabled)
+        for enabled in [false, true, false] {
+            defaults.set(enabled, forKey: DefaultsKey.displayVolumeKeysEnabled)
+            for label in [speakers.speakersStep, speakers.speakersMinimum, speakers.speakersMaximum] {
+                suite.expect(pages(of: label).contains(.energy) == enabled,
+                             "speaker key settings are searchable while the controls are visible")
+            }
+        }
         let keys = FeatureStrings.brightness(.enUS).keyboardBrightnessShortcuts
         let keyDestination = FeatureSettingsDestination(.shortcuts, sectionAnchor: .keyboardBrightnessShortcuts)
         verify(keys, opens: keyDestination, commandID: "settings.setting.keyboardBrightnessShortcuts")
@@ -293,6 +346,11 @@ enum SettingsFeatureTests {
                      "a real cleanup invocation remains on its normal startup path")
         let startup = (try? String(contentsOfFile: "Sources/Vorssaint/main.swift", encoding: .utf8)) ?? ""
         let backupDispatch = startup.range(of: "if let command = SettingsBackupSupport.command(")
+        if let migrate = startup.range(of: "Defaults.register()"),
+           let overlay = startup.range(of: "SettingsBackup.applyConfigFileAtLaunch()") {
+            suite.expect(migrate.lowerBound < overlay.lowerBound,
+                         "local preferences migrate before applying a partial startup declaration")
+        } else { suite.expect(false, "startup runs local migrations and declarative settings") }
         suite.expect(backupDispatch != nil && ["SuperKeyMappingGuard.", "Defaults.register()",
                      "MouseAccelerationGuard.", "MouseAccelerationService.", "SelfTest.", "Uninstaller."]
             .allSatisfy { name in
@@ -457,6 +515,9 @@ enum SettingsFeatureTests {
                 && backupKeys.contains(DefaultsKey.windowLayoutShortcutPreviousDisplay)
                 && backupKeys.contains(DefaultsKey.windowLayoutShortcutMarginMaximize),
                "window layout choices travel with the settings backup")
+        suite.expect(backupKeys.contains(DefaultsKey.screenshotScrollingAutoScroll)
+                && Defaults.registeredDefaults[DefaultsKey.screenshotScrollingAutoScroll] as? Bool == false,
+               "automatic scrolling is optional and travels with the screenshot settings backup")
         suite.expect(backupKeys.contains(DefaultsKey.screenshotFreeze)
                 && backupKeys.contains(DefaultsKey.screenshotFullScreenShortcutEnabled)
                 && backupKeys.contains(DefaultsKey.screenshotFullScreenShortcut)
@@ -548,6 +609,10 @@ enum SettingsFeatureTests {
                 && backupKeys.contains(DefaultsKey.linearScrollLines)
                 && backupKeys.contains(DefaultsKey.panelControlLinearScroll),
                "linear scrolling preferences travel with the settings backup")
+        suite.expect(backupKeys.contains(DefaultsKey.scrollSpeedEnabled)
+                && backupKeys.contains(DefaultsKey.scrollSpeedModifier)
+                && backupKeys.contains(DefaultsKey.scrollSpeedMultiplier),
+               "modifier-held scroll speed preferences travel with the settings backup")
         suite.expect(Defaults.registeredDefaults[DefaultsKey.panelControlSmoothScroll] as? Bool == true
                 && backupKeys.contains(DefaultsKey.smoothScrollEnabled)
                 && backupKeys.contains(DefaultsKey.panelControlSmoothScroll),
@@ -640,6 +705,7 @@ enum SettingsFeatureTests {
         suite.expect(!backupKeys.contains(DefaultsKey.clipboardHistoryEntries)
                 && !backupKeys.contains(DefaultsKey.shelfItems)
                 && !backupKeys.contains(DefaultsKey.sleepDisabledFlag)
+                && !backupKeys.contains(DefaultsKey.keepAwakeSessionEnd)
                 && !backupKeys.contains(DefaultsKey.micMuteActive)
                 && !backupKeys.contains(DefaultsKey.micMuteSavedVolumes)
                 && !backupKeys.contains(DefaultsKey.micMuteSavedChannelVolumes)
@@ -911,12 +977,14 @@ enum SettingsFeatureTests {
                "a file without the version envelope is rejected")
         let tampered: [String: Any] = [
             SettingsBackupSupport.formatVersionKey: 1,
-            SettingsBackupSupport.settingsKey: ["evilKey": "x", DefaultsKey.autoQuitEnabled: true] as [String: Any],
+            SettingsBackupSupport.settingsKey: ["evilKey": "x", DefaultsKey.autoQuitEnabled: true,
+                                                DefaultsKey.keepAwakeSessionEnd: ["end": 0.0, "minutes": 0]] as [String: Any],
         ]
         let filteredImport = SettingsBackupSupport.sanitizedSettings(from: tampered)
         suite.expect(filteredImport?["evilKey"] == nil
+                && filteredImport?[DefaultsKey.keepAwakeSessionEnd] == nil
                 && filteredImport?[DefaultsKey.autoQuitEnabled] as? Bool == true,
-               "unknown keys are dropped on import")
+               "unknown keys and live Keep Awake sessions are dropped on import")
         suite.expect(SettingsBackupSupport.sanitizedSettings(from: [
             SettingsBackupSupport.formatVersionKey: 99,
             SettingsBackupSupport.settingsKey: [String: Any](),
