@@ -46,9 +46,14 @@ final class BatteryUsageRecorder: ObservableObject {
         let service = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching("AppleSmartBattery"))
         guard service != 0 else { return nil }
         defer { IOObjectRelease(service) }
-        func int(_ key: String) -> Int? {
+        func property(_ key: String) -> Any? {
             IORegistryEntryCreateCFProperty(service, key as CFString, kCFAllocatorDefault, 0)?
-                .takeRetainedValue() as? Int
+                .takeRetainedValue()
+        }
+        // Newer macOS releases keep the raw capacities only inside BatteryData.
+        let batteryData = property("BatteryData") as? [String: Any]
+        func int(_ key: String) -> Int? {
+            property(key) as? Int ?? batteryData?[key] as? Int
         }
         if let current = int("AppleRawCurrentCapacity"), let maximum = int("AppleRawMaxCapacity"), maximum > 0 {
             return min(100, max(0, Double(current) / Double(maximum) * 100))

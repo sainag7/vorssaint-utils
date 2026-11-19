@@ -51,6 +51,15 @@ enum PreferencesFeatureTests {
             suite.expect(hours.count == 24 && hours.last?.percent == 2 && hours[22].percent == 3
                          && hours.last?.start == at(10),
                          "battery use adds each drop to its clock hour and ignores charging")
+            var recharged = BatteryUsageLedger()
+            recharged.record(percent: 4, at: at(9), calendar: calendar)
+            suite.expect(recharged.record(percent: 72, at: at(9, 30), calendar: calendar)
+                         && recharged.lastPercent == 72
+                         && !recharged.record(percent: 72, at: at(9, 31), calendar: calendar),
+                         "a charge reading becomes the new starting point and repeats need no save")
+            recharged.record(percent: 70, at: at(9, 45), calendar: calendar)
+            suite.expect(recharged.usage(endingAt: at(9, 50), calendar: calendar).last?.percent == 2,
+                         "a drop after charging counts from the charged level")
             suite.expect(!ledger.record(percent: 120, at: at(11), calendar: calendar)
                          && !ledger.record(percent: .nan, at: at(11), calendar: calendar),
                          "impossible battery readings are ignored")

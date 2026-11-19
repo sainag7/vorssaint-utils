@@ -20,12 +20,15 @@ struct BatteryUsageLedger: Codable, Equatable {
     private(set) var lastPercent: Double?
 
     /// Records a charge reading, 0...100. Returns whether anything changed
-    /// that is worth saving.
+    /// that is worth saving. Every reading becomes the new starting point,
+    /// rises included: otherwise, after charging, drops would only count once
+    /// the charge fell below the level it was at before the charge.
     @discardableResult
     mutating func record(percent: Double, at date: Date, calendar: Calendar = .current) -> Bool {
         guard percent.isFinite, (0...100).contains(percent) else { return false }
-        defer { lastPercent = percent }
-        guard let last = lastPercent, percent < last else { return lastPercent == nil }
+        let previous = lastPercent
+        lastPercent = percent
+        guard let last = previous, percent < last else { return previous != percent }
         let hour = Self.hourStart(of: date, calendar: calendar)
         hours[hour, default: 0] += last - percent
         prune(before: date, calendar: calendar)
